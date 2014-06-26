@@ -969,6 +969,10 @@ def main(args=None):
     	log.info('imagecube started at %s' % start_time.strftime('%Y-%m-%d_%H%M%S'))
     	log.info('imagecube called with arguments %s' % arglist)
 
+        # check to see if we already have an imagecube file in this directory:
+        
+        # if not, create it
+        # indent here
 	# Grab all of the .fits and .fit files in the specified directory
         all_files = glob.glob(image_directory + "/*.fit*")
         # no use doing anything if there aren't any files!
@@ -978,7 +982,7 @@ def main(args=None):
                 sys.exit()
             else:
                 return
-	
+
         # get images
         for (i,fitsfile) in enumerate(all_files):
 	     hdulist = fits.open(fitsfile)
@@ -1014,6 +1018,11 @@ def main(args=None):
         images_with_headers_unsorted = zip(image_data, headers, filenames)
         images_with_headers = sorted(images_with_headers_unsorted, 
 	                             key=lambda header: header[1]['WAVELNTH'])
+	
+        # end creating new imagecube file
+
+        # now work on the imagecube
+
 	
         if (do_conversion):
             convert_images(images_with_headers)
