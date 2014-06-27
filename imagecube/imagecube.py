@@ -701,7 +701,7 @@ def convolve_image(hdu, args):
     return
 
 #SWITCHED
-def resample_images(hdu, args):
+def resample_image(hdu, args):
     """
     Resamples image to a given pixel grid.
 
@@ -720,7 +720,7 @@ def resample_images(hdu, args):
     lngref_input, latref_input, rotation_pa = args['ref_wcs']
 
     # make the header for the resampled images (same for all)
-    artificial_header = tempfile.mktmp()
+    artificial_header = tempfile.mktemp()
     montage.commands.mHdr(`lngref_input` + ' ' + `latref_input`, width_input, 
                           artificial_header, system='eq', 
                           equinox=2000.0, height=height_input, 
@@ -729,7 +729,7 @@ def resample_images(hdu, args):
     # generate header for regridded image
     merge_headers(artificial_header, hdu.header, artificial_header)
     # do the regrid # TODO: make montage work
-    hduout = montage.wrappers.reproject_hdu(hdu, header=artificial_header)  
+    outhdu = montage.wrappers.reproject_hdu(hdu, header=artificial_header)  
     # delete the header file
     os.unlink(artificial_header)
     # replace data and header with montage output
@@ -951,6 +951,7 @@ def main(args=None):
             process_images(convolve_image, hdulist, args={'kernel_directory': kernel_directory, 'fwhm_input':fwhm_input})
 	
         if (do_resampling):
+            ref_wcs = get_ref_wcs(hdulist, main_reference_image) # TODO: error-trap
             process_images(resample_image, hdulist, args={'ang_size':ang_size,'ref_wcs': ref_wcs, 'im_pixsc':im_pixsc})
             cube_hdulist = create_datacube(hdulist, datacube_fname)
 
