@@ -39,6 +39,9 @@ matplotlib.use('PS')
 import matplotlib.pyplot as plt
 from matplotlib import rc
 
+imagecube_fname = 'imagecube.fits'
+datacube_fname = 'datacube.fits'
+
 NYQUIST_SAMPLING_RATE = 3.3
 """
 Code constant: NYQUIST_SAMPLING_RATE
@@ -344,10 +347,8 @@ def construct_mef(image_directory, logfile_name):
     hdu_unsort = []
     file_unsort = []
     # create a new header and hdulist
-    prihdr = ##FIX
     prihdu = fits.PrimaryHDU(header=prihdr)
-    hdulist = fits.HDUList([prihdu])
-
+    prihdr = prihdu.header
     # put some information in the header
     prihdr['CREATOR'] = ('IMAGECUBE', 'Software used to create this file') # TODO: add version
     prihdr['DATE'] = (datetime.now().strftime('%Y-%m-%d'), 'File creation date')
@@ -372,23 +373,27 @@ def construct_mef(image_directory, logfile_name):
 	            header['WAVELNTH'] = (wavelength, 'micron') # add the unit if it's not already there
                     hdu_unsort.append(hdu_fits[extens])
 	            file_unsort.append(extens_name)
-	         except KeyError:
+                except KeyError:
 	            warnings.warn('Image %s has no WAVELNTH keyword, will not be used' % extens_name, AstropyUserWarning)
-	     else:
+            else:
 	         warnings.warn("Image %s does not meet the above criteria." % extens_name, AstropyUserWarning) 
         hdu_fits.close() # end of loop over all extensions in file
         # end of loop over files
 	
-        # Sort the hdulist by WAVELNTH value
-        images_files_unsorted = zip(hdu_unsort, file_unsort)
-        images_files_sorted = sorted(images_files_unsorted, 
-	                             key=lambda header: hdu_unsort.header['WAVELNTH']) # TODO: not sure this is right
-        # now populate the final hdulist
-        for (i,obj) in enumerate(images_files_sorted):
-            hdulist[i+1]=images_files_sorted[1][i]
-            hdulist[i+1].header['ORIGFILE'] = images_files_sorted[2][i]	
-        # end creating new imagecube file
-        return(hdulist)
+        if len(hdu_unsort) > 0: # we have some valid data!
+            # Sort the hdulist by WAVELNTH value
+            images_files_unsorted = zip(hdu_unsort, file_unsort)
+            images_files_sorted = sorted(images_files_unsorted, 
+		                             key=lambda header: hdu_unsort.header['WAVELNTH']) # TODO: not sure this is right
+            # now populate the final hdulist
+            hdulist = fits.HDUList([prihdu])
+            for (i,obj) in enumerate(images_files_sorted):
+                hdulist[i+1]=images_files_sorted[1][i]
+                hdulist[i+1].header['ORIGFILE'] = images_files_sorted[2][i]	
+            # end creating new imagecube file
+            return(hdulist)
+        else:
+            return(None)
 
 # SWITCHED
 def get_conversion_factor(header):
@@ -485,9 +490,9 @@ def convert_image(hdu):
         conversion_factor = float(hdu.header['FLSCALE'])
     else:
         conversion_factor = get_conversion_factor(hdu.header)
-            # if conversion_factor == 0 either we don't know the instrument
-            # or we don't have a conversion factor for it.
-            if conversion_factor == 0: 
+        # if conversion_factor == 0 either we don't know the instrument
+        # or we don't have a conversion factor for it.
+        if conversion_factor == 0: 
                 warnings.warn("No conversion factor for image %s, using 1.0"\
                      % FILL_ME_IN,\
                     AstropyUserWarning)
@@ -951,19 +956,19 @@ def main(args=None):
 	
         if (do_resampling):
             process_images(resample, hdulist, ARGS)
-            cube_hdulist = create_datacube(hdulist)
+            cube_hdulist = create_datacube(hdulist, datacube_fname)
 
         if (do_seds):
             if do_resampling: # use the datacube we just made
                 output_seds(cube_hdulist[0])
-            elif exists(imagdir+datacube): # see if there's an existing datacube and use that # TODO: FIX
-                cube_hdulist = fits.open(imgdir+datacube) 
+            elif os.path.exists(image_directory+datacube_fname): # see if there's an existing datacube and use that # TODO: FIX
+                cube_hdulist = fits.open(image_directory+datacube_fname) 
                 output_seds(cube_hdulist[0])
             else:
-                warn('No datacube found') # TODO: FIX
+                warnings.warn('No datacube found in directory' % image_directory, AstropyUserWarning)
 
         # all done processing, so output MEF hdulist
-        hdulist.writeto() # TODO: FIX
+        hdulist.writeto(imagecube_fname,clobber=True,checksum=True) 
         hdulist.close()
 
         # all done!
