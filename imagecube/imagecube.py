@@ -369,7 +369,7 @@ def construct_mef(image_directory, logfile_name):
 	            wavelength = header['WAVELNTH'] 
 	            header['WAVELNTH'] = (wavelength, 'micron') # add the unit if it's not already there
                     hdulist.append(hdu_fits[extens])
-	            hdulist[-1].header['ORIGFILE'] =  (extens_name, 'Original file name')
+	            hdulist[-1].header['ORIGFILE'] =  (os.path.basename(extens_name), 'Original file name')
                 except KeyError:
 	            warnings.warn('Image %s has no WAVELNTH keyword, will not be used' % extens_name, AstropyUserWarning)
             else:
@@ -666,11 +666,9 @@ def convolve_image(hdu, args):
     # If so, then use that to perform the convolution.
     # Otherwise, convolve with a Gaussian kernel.
 
-    # TODO: FIX finding kernel
-    orig_file_base = os.path.splitext(hdulist[1].header['ORIGFILE'])[0]
-
-    kernel_filename = (args['dir_name'] + "/" + args['kernel_directory'] + "/" + 
-                           orig_file_base + "_kernel.fits")
+    # find kernel TODO: make this work for multi-extension input data
+    orig_file_base = os.path.splitext(hdu.header['ORIGFILE'])[0]
+    kernel_filename = os.path.join(args['kernel_directory'],orig_file_base + "_kernel.fits")
     log.info("Looking for " + kernel_filename)
 
     if os.path.exists(kernel_filename):
@@ -683,19 +681,18 @@ def convolve_image(hdu, args):
         convolved_image = convolve_fft(hdu.data, kernel_image)
         hdu.header['KERNEL'] = (kernel_filename, 'Kernel used in convolution')
     elif args['fwhm_input'] != '': # no kernel but fwhm_input specified
+        # construct kernel
+        # NOTETOSELF: not completely clear whether Gaussian2DKernel 'width' is sigma or FWHM
+        # also, previous version had kernel being 3x3 pixels which seems pretty small!
         native_pixelscale = get_pixel_scale(hdu.header)
         sigma_input = (fwhm_input / 
                            (2* math.sqrt(2*math.log (2) ) * native_pixelscale))
-
-        # NOTETOSELF: not completely clear whether Gaussian2DKernel 'width' is sigma or FWHM
-        # also, previous version had kernel being 3x3 pixels which seems pretty small!
-        # construct kernel
         gaus_kernel_inp = Gaussian2DKernel(width=sigma_input)
         # Do the convolution 
         convolved_image = convolve(hdu.data, gaus_kernel_inp)
         hdu.header['FWHM'] = (fwhm_input, 'FWHM value used in convolution, in pixels')
     else:
-        warnings.warn('No kernel found and no FWHM given: no convolution performed on %s'\,
+        warnings.warn('No kernel found and no FWHM given: no convolution performed on %s'\
                      % hdu.header['ORIGFILE'], AstropyUserWarning)
         return
 
@@ -783,7 +780,7 @@ def create_data_cube(hdulist):
     return(cube_hdulist)
 
 # SWITCHED
-def process_images(process_func, hdulist, args, header_add=None):
+def process_images(process_func, hdulist, args, header_add={}):
     # TODO: check primary header to see if this function has already been run, issue warning
     for hdu in hdulist[1:]: # start at 1 b/c 0 is primary header, no image data
         process_func(hdu, args) # error-trap here?
