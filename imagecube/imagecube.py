@@ -347,22 +347,21 @@ def construct_mef(image_directory, logfile_name):
     hdu_unsort = []
     file_unsort = []
     # create a new header and hdulist
-    prihdu = fits.PrimaryHDU(header=prihdr)
+    prihdu = fits.PrimaryHDU()
     prihdr = prihdu.header
+    hdulist = fits.HDUList([prihdu])
     # put some information in the header
     prihdr['CREATOR'] = ('IMAGECUBE', 'Software used to create this file') # TODO: add version
     prihdr['DATE'] = (datetime.now().strftime('%Y-%m-%d'), 'File creation date')
     prihdr['LOGFILE'] = (logfile_name, 'imagecube log file') 
-
 
     # get images
     for fitsfile in all_files:
         hdu_fits = fits.open(fitsfile)
         img_extens = find_image_planes(hdu_fits) # find all science extensions
         for extens in img_extens:
-            extens_name = '%s[%1d]' % (filename,extens)
+            extens_name = '%s[%1d]' % (fitsfile,extens)
             header = hdu_fits[extens].header
-            image = hdu_fits[extens].data
             # check to see if image has reasonable scale & orientation - could do this better
             pixelscale = get_pixel_scale(header)
             fov = pixelscale * float(header['NAXIS1'])
@@ -371,29 +370,19 @@ def construct_mef(image_directory, logfile_name):
                 try:
 	            wavelength = header['WAVELNTH'] 
 	            header['WAVELNTH'] = (wavelength, 'micron') # add the unit if it's not already there
-                    hdu_unsort.append(hdu_fits[extens])
-	            file_unsort.append(extens_name)
+                    hdulist.append(hdu_fits[extens])
+	            hdulist[-1].header['ORIGFILE'] =  (extens_name, 'Original file name')
                 except KeyError:
 	            warnings.warn('Image %s has no WAVELNTH keyword, will not be used' % extens_name, AstropyUserWarning)
             else:
 	         warnings.warn("Image %s does not meet the above criteria." % extens_name, AstropyUserWarning) 
         hdu_fits.close() # end of loop over all extensions in file
-        # end of loop over files
+    # end of loop over files
 	
-        if len(hdu_unsort) > 0: # we have some valid data!
-            # Sort the hdulist by WAVELNTH value
-            images_files_unsorted = zip(hdu_unsort, file_unsort)
-            images_files_sorted = sorted(images_files_unsorted, 
-		                             key=lambda header: hdu_unsort.header['WAVELNTH']) # TODO: not sure this is right
-            # now populate the final hdulist
-            hdulist = fits.HDUList([prihdu])
-            for (i,obj) in enumerate(images_files_sorted):
-                hdulist[i+1]=images_files_sorted[1][i]
-                hdulist[i+1].header['ORIGFILE'] = images_files_sorted[2][i]	
-            # end creating new imagecube file
-            return(hdulist)
-        else:
-            return(None)
+    if len(hdulist) > 1: # we have some valid data!
+         return(hdulist)
+    else:
+        return(None)
 
 # SWITCHED
 def get_conversion_factor(header):
@@ -933,8 +922,8 @@ def main(args=None):
     	log.info('imagecube called with arguments %s' % arglist)
 
         # check to see if we already have an imagecube file in this directory
-        if exists(imagdir+mef): # use the existing file       
-            hdulist = fits.open(imagdir+mef)
+        if os.path.exists(image_directory+imagecube_fname): # use the existing file       
+            hdulist = fits.open(image_directory+imagecube_fname)
         else: # create a new file
             hdulist = construct_mef(image_directory, logfile_name)
             if hdulist == None: # no files found, so quit
