@@ -613,7 +613,7 @@ def find_image_planes(hdulist):
 # SWITCHED
 def register_image(hdu, args):
     """
-    Registers all of the images to a common WCS
+    Registers image to a reference WCS
 
     Parameters
     ----------
@@ -626,23 +626,21 @@ def register_image(hdu, args):
     lngref_input, latref_input, rotation_pa = args['ref_wcs']
     width_and_height = u.arcsec.to(u.deg, args['ang_size'])
 
-    # now do the registration
     native_pixelscale = get_pixel_scale(hdu.header)
 
-    artificial_filename = tempfile.mktemp() 
     # make the new header & merge it with old
+    artificial_filename = tempfile.mktemp() 
     montage.commands.mHdr(`lngref_input` + ' ' + `latref_input`, 
                               width_and_height, artificial_filename, 
                               system='eq', equinox=2000.0, 
                               height=width_and_height, 
                               pix_size=native_pixelscale, rotation=rotation_pa)
     merge_headers(artificial_filename, hdu.header, artificial_filename)
-    print(artificial_filename)
     # reproject using montage
-    outhdu = montage.wrappers.reproject_hdu(hdu, header=artificial_filename, exact_size=True)  
+    outhdu = montage.wrappers.reproject_hdu(hdu, header=artificial_filename)  #, exact_size=True)  
     # replace data and header with montage output - problem here in primary vs image HDu?
-#    hdu.data = outhdu.data
-#    hdu.header = outhdu.header
+    hdu.data = outhdu.data
+    hdu.header = outhdu.header
     # delete the file with header info
 #    os.unlink(artificial_filename)
     return
@@ -712,8 +710,8 @@ def resample_image(hdu, args):
 
     """
     # figure out the geometry of the resampled images
-    width_input = args['ang_size'] / args['im_pixsc']
-    height_input = width_input
+    width_input = args['ang_size'] / args['im_pixsc'] # NOTETOSELF: doesn't look right, value is in *pixels*
+    height_input = width_input                         #            shouldn't it be in degrees?
 
     # get WCS info for the reference image
     lngref_input, latref_input, rotation_pa = args['ref_wcs']
@@ -727,7 +725,7 @@ def resample_image(hdu, args):
 
     # generate header for regridded image
     merge_headers(artificial_header, hdu.header, artificial_header)
-    # do the regrid # TODO: make montage work
+    # do the regrid 
     outhdu = montage.wrappers.reproject_hdu(hdu, header=artificial_header)  
     # delete the header file
     os.unlink(artificial_header)
@@ -737,6 +735,7 @@ def resample_image(hdu, args):
     return
 
 #SWITCHED
+# TODO: confirm that this works, can't do until register_image and resample_image both work
 def create_datacube(hdulist,img_dir,datacube_name):
     """
     Creates a data cube from the input HDUlist.
@@ -765,7 +764,7 @@ def create_datacube(hdulist,img_dir,datacube_name):
     # TODO: finish
 
     # now use the header and data to create a new fits file
-    prihdu = fits.PrimaryHDU(header=new_wcs_header, data=resampled_images)
+    prihdu = fits.PrimaryHDU(header=new_wcs_header, data=np.dstack(resampled_images))
     hdulist = fits.HDUList([prihdu])
     # add checksums to header
     hdulist[0].add_datasum(when='Computed by imagecube')
