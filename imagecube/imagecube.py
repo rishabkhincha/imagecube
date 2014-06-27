@@ -20,6 +20,7 @@ import os
 import warnings
 import shutil
 import string
+import tempfile
 
 from datetime import datetime
 from astropy import units as u
@@ -559,27 +560,28 @@ def merge_headers(montage_hfile, orig_header, out_file):
     orig_header.tofile(out_file,sep='\n',endcard=True,padding=False,clobber=True)
     return
 
-def get_ref_wcs(img_name):
+def get_ref_wcs(hdulist, img_name):
     '''
-    get WCS parameters from first science extension
-    (or primary extension if there is only one) of image
+    get WCS parameters from extension in hdulist which
+    matches img_name
 
     Parameters
     ----------
     img_name: name of FITS image file
 
     '''
-    hdulist = fits.open(img_name)
-    hdr = hdulist[find_image_planes(hdulist)[0]].header #take the first sci image if multi-ext.
-    lngref_input = hdr['CRVAL1']
-    latref_input = hdr['CRVAL2']
+    global rot_angle
+
+    for hdu in hdulist[1:]:
+        if img_name in hdu.header['ORIGFILE']:
+            lngref_input = hdu.header['CRVAL1']
+            latref_input = hdu.header['CRVAL2']
     try:
         rotation_pa = rot_angle # the user-input PA
     except NameError: # user didn't define it
         log.info('Getting position angle from %s' % img_name)
-        rotation_pa = get_pangle(hdr)
+        rotation_pa = get_pangle(hdu.header)
     log.info('Using PA of %.1f degrees' % rotation_pa)
-    hdulist.close()
     return(lngref_input, latref_input, rotation_pa)
 
 #SWITCHED
@@ -609,7 +611,7 @@ def find_image_planes(hdulist):
                 img_plns.append(extn)
     return(img_plns)
 
-# MOSTLY SWITCHED
+# SWITCHED
 def register_image(hdu, args):
     """
     Registers all of the images to a common WCS
@@ -622,14 +624,13 @@ def register_image(hdu, args):
 
     """
     # get WCS info for the reference image
-    lngref_input, latref_input, rotation_pa = get_ref_wcs(main_reference_image)
-    width_and_height = u.arcsec.to(u.deg, ang_size)
+    lngref_input, latref_input, rotation_pa = args['ref_wcs']
+    width_and_height = u.arcsec.to(u.deg, args['ang_size'])
 
     # now do the registration
     native_pixelscale = get_pixel_scale(hdu.header)
 
-    artificial_filename = (mktemp( "_pixelgrid_header")) #TODO: FIX
-
+    artificial_filename = tempfile.mktemp() 
     # make the new header & merge it with old
     montage.commands.mHdr(`lngref_input` + ' ' + `latref_input`, 
                               width_and_height, artificial_filename, 
@@ -637,11 +638,14 @@ def register_image(hdu, args):
                               height=width_and_height, 
                               pix_size=native_pixelscale, rotation=rotation_pa)
     merge_headers(artificial_filename, hdu.header, artificial_filename)
-    # reproject using montage -- TODO: FIX FOR hdulist
-    montage.wrappers.reproject(input_filename, registered_filename, 
-                                   header=artificial_filename, exact_size=True)  
+    print(artificial_filename)
+    # reproject using montage
+    outhdu = montage.reproject_hdu(hdu, header=artificial_filename, exact_size=True)  
+    # replace data and header with montage output
+#    hdu.data = outhdu.data
+#    hdu.header = outhdu.header
     # delete the file with header info
-    os.unlink(artificial_filename)
+#    os.unlink(artificial_filename)
     return
 
 # MOSTLY SWITCHED
@@ -772,8 +776,9 @@ def create_data_cube(hdulist):
     hdulist.writeto(new_directory + '/' + 'datacube.fits',clobber=True)
     return(cube_hdulist)
 
-# MOSTLY SWITCHED
+# SWITCHED
 def process_images(process_func, hdulist, args, header_add=None):
+    # TODO: check primary header to see if this function has already been run, issue warning
     for hdu in hdulist[1:]: # start at 1 b/c 0 is primary header, no image data
         process_func(hdu, args) # error-trap here?
 
@@ -783,7 +788,7 @@ def process_images(process_func, hdulist, args, header_add=None):
     for key in header_add.keys():
         hdulist[0].header[key] = header_add[key]
     log.info('Function %s complete' % process_func.__name__)
-    # TODO: add option to save intermediate values here
+    # TODO: add option to save intermediate values here?
     return
 
 # PARTLY SWITCHED
@@ -862,6 +867,7 @@ def cleanup_output_files():
 # SWITCHED
 #if __name__ == '__main__':
 def main(args=None):
+    # should probably get rid of global variables
     global ang_size
     global image_directory
     global main_reference_image
@@ -887,6 +893,7 @@ def main(args=None):
     do_cleanup = False
     kernel_directory = ''
     im_pixsc = ''
+
 
     # note start time for log
     start_time = datetime.now()
@@ -927,13 +934,15 @@ def main(args=None):
                     sys.exit()
                 else:
                     return
+        # grab the reference WCS info 
         
         # now work on the imagecube
         if (do_conversion):
             process_images(convert_image, hdulist, args=None, header_add = {'BUNIT': ('Jy/pixel', 'Units of image data')})
 	
         if (do_registration):
-            process_images(register, hdulist, args={})
+            ref_wcs = get_ref_wcs(hdulist, main_reference_image) # TODO: error-trap
+            process_images(register_image, hdulist, args={'ang_size':ang_size, 'ref_wcs': ref_wcs})
 	
         if (do_convolution):
             process_images(convolve, hdulist, args={})
