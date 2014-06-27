@@ -761,13 +761,11 @@ def create_datacube(hdulist,img_dir,datacube_name):
     # grab the WCS info from the first input image
     new_wcs_header = wcs.WCS(hdulist[1].header).to_header()
 
-    # copy the WCS into into the primary header
-    prihdr = hdulist[0].header
-    for key in new_wcs_header.keys():
-        prihdr[key]=new_wcs_header[key]
+    # copy other info into the primary header from hdulist[0].header
+    # TODO: finish
 
     # now use the header and data to create a new fits file
-    prihdu = fits.PrimaryHDU(header=prihdr, data=resampled_images)
+    prihdu = fits.PrimaryHDU(header=new_wcs_header, data=resampled_images)
     hdulist = fits.HDUList([prihdu])
     # add checksums to header
     hdulist[0].add_datasum(when='Computed by imagecube')
@@ -968,7 +966,7 @@ def main(args=None):
                 warnings.warn('No datacube found in directory' % image_directory, AstropyUserWarning)
 
         # all done processing, so output MEF hdulist
-        hdulist.writeto(imagecube_fname,clobber=True,checksum=True) 
+        hdulist.writeto(imagecube_fname,clobber=True,checksum=True,output_verify='fix') 
         hdulist.close()
 
         # all done!
