@@ -344,8 +344,6 @@ def construct_mef(image_directory, logfile_name):
     if len(all_files) == 0:
         return(None)
 
-    hdu_unsort = []
-    file_unsort = []
     # create a new header and hdulist
     prihdu = fits.PrimaryHDU()
     prihdr = prihdu.header
@@ -380,6 +378,7 @@ def construct_mef(image_directory, logfile_name):
     # end of loop over files
 	
     if len(hdulist) > 1: # we have some valid data!
+        # TODO: here is the place where we would sort the HDUs by wavelength, if I knew how
          return(hdulist)
     else:
         return(None)
@@ -464,7 +463,7 @@ def get_conversion_factor(header):
     return conversion_factor
 
 # SWITCHED
-def convert_image(hdu):
+def convert_image(hdu,args=None):
     """
     Converts an input image's native "flux units" to Jy/pixel
     The converted values are stored in the list of arrays, 
@@ -483,8 +482,7 @@ def convert_image(hdu):
         # or we don't have a conversion factor for it.
         if conversion_factor == 0: 
                 warnings.warn("No conversion factor for image %s, using 1.0"\
-                     % FILL_ME_IN,\
-                    AstropyUserWarning)
+                     % hdu.header['ORIGFILE'], AstropyUserWarning)
                 conversion_factor = 1.0
 
         # Do a Jy/pixel unit conversion
@@ -776,19 +774,16 @@ def create_data_cube(hdulist):
 
 # MOSTLY SWITCHED
 def process_images(process_func, hdulist, args, header_add=None):
-    for hdu in hdulist:
-        process_func(hdu, args)
-        # error-trap here?
+    for hdu in hdulist[1:]: # start at 1 b/c 0 is primary header, no image data
+        process_func(hdu, args) # error-trap here?
 
     # add info to primary header and logfile
-    hdulist[0].header[func] = ('Y',date_here)
+    hdulist[0].header['HISTORY'] = 'imagecube: %s completed at %s' % (process_func.__name__,\
+                                                                          datetime.now().strftime('%Y-%m-%d_%H%M%S'))
     for key in header_add.keys():
         hdulist[0].header[key] = header_add[key]
-    # TODO: fill in 
-    #log.info('Function %s complete', process_func)
-    hdu.flush()
-    # save intermediate values here
-    # TODO: complete
+    log.info('Function %s complete' % process_func.__name__)
+    # TODO: add option to save intermediate values here
     return
 
 # PARTLY SWITCHED
@@ -917,7 +912,7 @@ def main(args=None):
 
     # if not just cleaning up, make a log file which records input parameters
     logfile_name = 'imagecube_'+ start_time.strftime('%Y-%m-%d_%H%M%S') + '.log'
-    with log.log_to_file(logfile_name,filter_origin='imagecube.imagecube'):
+    with log.log_to_file(logfile_name):
     	log.info('imagecube started at %s' % start_time.strftime('%Y-%m-%d_%H%M%S'))
     	log.info('imagecube called with arguments %s' % arglist)
 
@@ -935,7 +930,7 @@ def main(args=None):
         
         # now work on the imagecube
         if (do_conversion):
-            process_images(convert, hdulist, args=None, header_add = {'BUNIT': ('Jy/pixel', 'Units of image data')})
+            process_images(convert_image, hdulist, args=None, header_add = {'BUNIT': ('Jy/pixel', 'Units of image data')})
 	
         if (do_registration):
             process_images(register, hdulist, ARGS)
