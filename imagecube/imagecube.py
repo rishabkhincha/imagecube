@@ -640,8 +640,8 @@ def register_image(hdu, args):
     merge_headers(artificial_filename, hdu.header, artificial_filename)
     print(artificial_filename)
     # reproject using montage
-    outhdu = montage.reproject_hdu(hdu, header=artificial_filename, exact_size=True)  
-    # replace data and header with montage output
+    outhdu = montage.wrappers.reproject_hdu(hdu, header=artificial_filename, exact_size=True)  
+    # replace data and header with montage output - problem here in primary vs image HDu?
 #    hdu.data = outhdu.data
 #    hdu.header = outhdu.header
     # delete the file with header info
@@ -710,28 +710,28 @@ def resample_images(hdu, args):
 
     """
     # figure out the geometry of the resampled images
-    width_input = ang_size / im_pixsc
+    width_input = args['ang_size'] / args['im_pixsc']
     height_input = width_input
 
     # get WCS info for the reference image
-    lngref_input, latref_input, rotation_pa = get_ref_wcs(main_reference_image)
+    lngref_input, latref_input, rotation_pa = args['ref_wcs']
 
     # make the header for the resampled images (same for all)
+    artificial_header = tempfile.mktmp()
     montage.commands.mHdr(`lngref_input` + ' ' + `latref_input`, width_input, 
-                          'grid_final_resample_header', system='eq', 
+                          artificial_header, system='eq', 
                           equinox=2000.0, height=height_input, 
-                          pix_size=im_pixsc, rotation=rotation_pa)
+                          pix_size=args['im_pixsc'], rotation=rotation_pa)
 
-    artificial_header = (mktemp("_artheader")) # TODO: FIX
     # generate header for regridded image
-    merge_headers('grid_final_resample_header', hdu.header ,artificial_header)
+    merge_headers(artificial_header, hdu.header, artificial_header)
     # do the regrid # TODO: make montage work
-    montage.wrappers.reproject(input_filename, resampled_filename, 
-            header=artificial_header)  
+    hduout = montage.wrappers.reproject_hdu(hdu, header=artificial_header)  
     # delete the header file
     os.unlink(artificial_header)
-
-    os.unlink('grid_final_resample_header')
+    # replace data and header with montage output
+    hdu.data = outhdu.data
+    hdu.header = outhdu.header
     return
 
 #SWITCHED
@@ -948,7 +948,7 @@ def main(args=None):
             process_images(convolve, hdulist, args={})
 	
         if (do_resampling):
-            process_images(resample, hdulist, args={})
+            process_images(resample, hdulist, args={'ang_size':ang_size,'ref_wcs': ref_wcs, 'im_pixsc':im_pixsc})
             cube_hdulist = create_datacube(hdulist, datacube_fname)
 
         if (do_seds):
