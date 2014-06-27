@@ -320,8 +320,7 @@ def parse_command_line(args):
         elif opt in ("--kernels"):
             kernel_directory = arg
             if (not os.path.isdir(kernel_directory)):
-                print("Error: The directory cannot be found: " + 
-                      kernel_directory)
+                print("Error: The directory %s cannot be found: " % kernel_directory)
                 parse_status=2
                 return
         elif opt in ("--im_pixsc"):
@@ -560,6 +559,7 @@ def merge_headers(montage_hfile, orig_header, out_file):
     orig_header.tofile(out_file,sep='\n',endcard=True,padding=False,clobber=True)
     return
 
+#SWITCHED
 def get_ref_wcs(hdulist, img_name):
     '''
     get WCS parameters from extension in hdulist which
@@ -667,8 +667,10 @@ def convolve_image(hdu, args):
     # Otherwise, convolve with a Gaussian kernel.
 
     # TODO: FIX finding kernel
-    kernel_filename = (original_directory + "/" + kernel_directory + "/" + 
-                           original_filename + "_kernel.fits")
+    orig_file_base = os.path.splitext(hdulist[1].header['ORIGFILE'])[0]
+
+    kernel_filename = (args['dir_name'] + "/" + args['kernel_directory'] + "/" + 
+                           orig_file_base + "_kernel.fits")
     log.info("Looking for " + kernel_filename)
 
     if os.path.exists(kernel_filename):
@@ -680,7 +682,7 @@ def convolve_image(hdu, args):
         # do the convolution 
         convolved_image = convolve_fft(hdu.data, kernel_image)
         hdu.header['KERNEL'] = (kernel_filename, 'Kernel used in convolution')
-    else: # no kernel
+    elif args['fwhm_input'] != '': # no kernel but fwhm_input specified
         native_pixelscale = get_pixel_scale(hdu.header)
         sigma_input = (fwhm_input / 
                            (2* math.sqrt(2*math.log (2) ) * native_pixelscale))
@@ -692,12 +694,16 @@ def convolve_image(hdu, args):
         # Do the convolution 
         convolved_image = convolve(hdu.data, gaus_kernel_inp)
         hdu.header['FWHM'] = (fwhm_input, 'FWHM value used in convolution, in pixels')
+    else:
+        warnings.warn('No kernel found and no FWHM given: no convolution performed on %s'\,
+                     % hdu.header['ORIGFILE'], AstropyUserWarning)
+        return
 
     # replace data with convolved version
     hdu.data = convolved_image
     return
 
-
+#SWITCHED
 def resample_images(hdu, args):
     """
     Resamples image to a given pixel grid.
@@ -945,10 +951,10 @@ def main(args=None):
             process_images(register_image, hdulist, args={'ang_size':ang_size, 'ref_wcs': ref_wcs})
 	
         if (do_convolution):
-            process_images(convolve, hdulist, args={})
+            process_images(convolve_image, hdulist, args={'kernel_directory': kernel_directory, 'fwhm_input':fwhm_input})
 	
         if (do_resampling):
-            process_images(resample, hdulist, args={'ang_size':ang_size,'ref_wcs': ref_wcs, 'im_pixsc':im_pixsc})
+            process_images(resample_image, hdulist, args={'ang_size':ang_size,'ref_wcs': ref_wcs, 'im_pixsc':im_pixsc})
             cube_hdulist = create_datacube(hdulist, datacube_fname)
 
         if (do_seds):
