@@ -296,7 +296,7 @@ def parse_command_line(args):
         elif opt in ("--dir"):
             image_directory = arg
             if (not os.path.isdir(image_directory)):
-                print("Error: The directory cannot be found: " + image_directory)
+                print("Error: The directory %s cannot be found" % image_directory)
                 parse_status = 2
                 return(parse_status)
         elif opt in ("--flux_conv"):
@@ -330,16 +330,15 @@ def parse_command_line(args):
         try:
             with open(main_reference_image): pass
         except IOError:
-            print("The file " + main_reference_image + 
-                  " could not be found in the directory " + image_directory +
-                  ". Cannot run without reference image, exiting.")
+            print("The file %s could not be found in the directory %s. \
+                   Cannot run without reference image, exiting." % (main_reference_image, image_directory))
             parse_status = 2
     return(parse_status)
 
 # SWITCHED
 def construct_mef(image_directory, logfile_name):
     # Grab all of the .fits and .fit files in the specified directory
-    all_files = glob.glob(image_directory + "/*.fit*")
+    all_files = glob.glob(os.path.join(image_directory,"*.fit*"))
     # no use doing anything if there aren't any files!
     if len(all_files) == 0:
         return(None)
@@ -738,7 +737,7 @@ def resample_image(hdu, args):
     return
 
 #SWITCHED
-def create_data_cube(hdulist):
+def create_datacube(hdulist,img_dir,datacube_name):
     """
     Creates a data cube from the input HDUlist.
 
@@ -748,23 +747,24 @@ def create_data_cube(hdulist):
 
     """
     # make new directory for output, if needed
-    new_directory = image_directory + "/datacube/"
+    new_directory = os.path.join(image_directory,"datacube")
     if not os.path.exists(new_directory):
         os.makedirs(new_directory)
 
     # put the image data into a list (not sure this is quite the right way to do it)
     resampled_images=[]
     waves = []
-    for hdu in hdulist:
+    for hdu in hdulist[1:]:
         resampled_images.append(hdu.data)
         waves.append(hdu.header['WAVELNTH'])
 
     # grab the WCS info from the first input image
-    new_wcs = wcs.WCS(hdulist[0].header)
+    new_wcs_header = wcs.WCS(hdulist[1].header).to_header()
 
-    # add the WCS info to the existing primary header
-    # TODO: FIX
-    prihdr = new_wcs.to_header()
+    # copy the WCS into into the primary header
+    prihdr = hdulist[0].header
+    for key in new_wcs_header.keys():
+        prihdr[key]=new_wcs_header[key]
 
     # now use the header and data to create a new fits file
     prihdu = fits.PrimaryHDU(header=prihdr, data=resampled_images)
@@ -773,10 +773,13 @@ def create_data_cube(hdulist):
     hdulist[0].add_datasum(when='Computed by imagecube')
     hdulist[0].add_checksum(when='Computed by imagecube',override_datasum=True)
     # add wavelength info to header
-    hdulist[0].header['WAVELNTH'] = (waves, 'Wavelengths in microns of input data') # TODO: probably need to print to string
+    wavestr = []
+    for w in waves:
+        wavestr+= ' %.1f' % w
+    hdulist[0].header['WAVELNTH'] = (wavestr, 'Wavelengths in microns of input data') 
 
     # NOTETOSELF: user-settable output name?
-    hdulist.writeto(new_directory + '/' + 'datacube.fits',clobber=True)
+    hdulist.writeto(os.path.join(new_directory,datacube_name),clobber=True)
     return(cube_hdulist)
 
 # SWITCHED
@@ -805,7 +808,7 @@ def output_seds(cube_hdu):
 
     """
     # make new directory for output, if needed
-    new_directory = image_directory + "/seds/"
+    new_directory = os.path.join(image_directory,"seds")
     if not os.path.exists(new_directory):
         os.makedirs(new_directory)
 
@@ -861,7 +864,7 @@ def cleanup_output_files():
     """
 
     for im in (imagecube_fname, datacube_fname):
-        filepth = image_directory + '/' + im
+        filepth = os.path.join(image_directory, im)
         if (os.path.exists(filepth)):
             log.info("Removing " + filepth)
             os.unlink(filepth)
@@ -927,8 +930,8 @@ def main(args=None):
     	log.info('imagecube called with arguments %s' % arglist)
 
         # check to see if we already have an imagecube file in this directory
-        if os.path.exists(image_directory+imagecube_fname): # use the existing file 
-            hdulist = fits.open(image_directory+imagecube_fname) # NB: problematic if some tasks shouldn't be redone
+        if os.path.exists(os.path.join(image_directory,imagecube_fname)): # use the existing file 
+            hdulist = fits.open(os.path.join(image_directory,imagecube_fname)) # NB: problematic if some tasks shouldn't be redone
         else: # create a new file
             hdulist = construct_mef(image_directory, logfile_name)
             if hdulist == None: # no files found, so quit
@@ -953,13 +956,13 @@ def main(args=None):
         if (do_resampling):
             ref_wcs = get_ref_wcs(hdulist, main_reference_image) # TODO: error-trap
             process_images(resample_image, hdulist, args={'ang_size':ang_size,'ref_wcs': ref_wcs, 'im_pixsc':im_pixsc})
-            cube_hdulist = create_datacube(hdulist, datacube_fname)
+#            cube_hdulist = create_datacube(hdulist, image_directory, datacube_fname)
 
         if (do_seds):
             if do_resampling: # use the datacube we just made
                 output_seds(cube_hdulist[0])
-            elif os.path.exists(image_directory+datacube_fname): # see if there's an existing datacube and use that 
-                cube_hdulist = fits.open(image_directory+datacube_fname) 
+            elif os.path.exists(os.path.join(image_directory,datacube_fname)): # see if there's an existing datacube and use that 
+                cube_hdulist = fits.open(os.path.join(image_directory,datacube_fname)) 
                 output_seds(cube_hdulist[0])
             else:
                 warnings.warn('No datacube found in directory' % image_directory, AstropyUserWarning)
