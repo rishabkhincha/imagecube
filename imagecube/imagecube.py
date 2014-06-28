@@ -547,15 +547,16 @@ def merge_headers(montage_hfile, orig_header, out_file):
 
     '''
     montage_header = fits.Header.fromtextfile(montage_hfile)
-    for key in orig_header.keys():
+    new_header = orig_header.copy()
+    for key in new_header.keys():
         if key in montage_header.keys():
-            orig_header[key] = montage_header[key] # overwrite the original header WCS
-    if 'CD1_1' in orig_header.keys(): # if original header has CD matrix instead of CDELTs:
+            new_header[key] = montage_header[key] # overwrite the original header WCS
+    if 'CD1_1' in new_header.keys(): # if original header has CD matrix instead of CDELTs:
         for cdm in ['CD1_1','CD1_2','CD2_1','CD2_2']: 
-            del orig_header[cdm] # delete the CD matrix
+            del new_header[cdm] # delete the CD matrix
         for cdp in ['CDELT1','CDELT2','CROTA2']: 
-            orig_header[cdp] = montage_header[cdp] # insert the CDELTs and CROTA2
-    orig_header.tofile(out_file,sep='\n',endcard=True,padding=False,clobber=True)
+            new_header[cdp] = montage_header[cdp] # insert the CDELTs and CROTA2
+    new_header.tofile(out_file,sep='\n',endcard=True,padding=False,clobber=True)
     return
 
 #SWITCHED
@@ -642,10 +643,10 @@ def register_image(hdu, args):
     hdu.data = outhdu.data
     hdu.header = outhdu.header
     # delete the file with header info
-#    os.unlink(artificial_filename)
+    os.unlink(artificial_filename)
     return
 
-# MOSTLY SWITCHED
+# SWITCHED
 def convolve_image(hdu, args):
     """
     Convolves image with either a Gaussian kernel or
