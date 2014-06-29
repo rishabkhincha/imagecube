@@ -491,7 +491,6 @@ def convert_image(hdu,args=None):
             + ' convert original BUNIT into Jy/pixel.')
     return
 
-#SWITCHED
 #modified from aplpy.wcs_util.get_pixel_scales
 def get_pixel_scale(header):
     '''
@@ -513,7 +512,6 @@ def get_pixel_scale(header):
         pix_scale = abs(w.wcs.get_cdelt()[0]) * u.deg.to(u.arcsec)
     return(pix_scale)
 
-#SWITCHED
 def get_pangle(header):
     '''
     Compute the rotation angle, in degrees,  from an image WCS
@@ -530,7 +528,6 @@ def get_pangle(header):
     cr2 = math.atan2(pc[0,1],pc[0,0])*u.radian.to(u.deg)    
     return(cr2)
 
-#SWITCHED
 def merge_headers(montage_hfile, orig_header, out_file):
     '''
     Merges an original image header with the WCS info
@@ -559,7 +556,6 @@ def merge_headers(montage_hfile, orig_header, out_file):
     new_header.tofile(out_file,sep='\n',endcard=True,padding=False,clobber=True)
     return
 
-#SWITCHED
 def get_ref_wcs(hdulist, img_name):
     '''
     get WCS parameters from extension in hdulist which
@@ -584,7 +580,6 @@ def get_ref_wcs(hdulist, img_name):
     log.info('Using PA of %.1f degrees' % rotation_pa)
     return(lngref_input, latref_input, rotation_pa)
 
-#SWITCHED
 def find_image_planes(hdulist):
     """
     Reads FITS hdulist to figure out which ones contain science data
@@ -698,7 +693,6 @@ def convolve_image(hdu, args):
     hdu.data = convolved_image
     return
 
-#SWITCHED
 def resample_image(hdu, args):
     """
     Resamples image to a given pixel grid.
@@ -735,9 +729,7 @@ def resample_image(hdu, args):
     hdu.header = outhdu.header
     return
 
-#SWITCHED
-# TODO: confirm that this works, can't do until register_image and resample_image both work
-def create_datacube(hdulist,img_dir,datacube_name):
+def create_datacube(hdulist,  img_dir, datacube_name):
     """
     Creates a data cube from the input HDUlist.
 
@@ -751,7 +743,7 @@ def create_datacube(hdulist,img_dir,datacube_name):
     if not os.path.exists(new_directory):
         os.makedirs(new_directory)
 
-    # put the image data into a list (not sure this is quite the right way to do it)
+    # put the image data into a list (not sure this is quite the right way to do it, but seems to work)
     resampled_images=[]
     waves = []
     for hdu in hdulist[1:]:
@@ -765,20 +757,20 @@ def create_datacube(hdulist,img_dir,datacube_name):
     # TODO: finish
 
     # now use the header and data to create a new fits file
-    prihdu = fits.PrimaryHDU(header=new_wcs_header, data=np.dstack(resampled_images))
+    prihdu = fits.PrimaryHDU(header=new_wcs_header, data=resampled_images)
     hdulist = fits.HDUList([prihdu])
     # add checksums to header
     hdulist[0].add_datasum(when='Computed by imagecube')
     hdulist[0].add_checksum(when='Computed by imagecube',override_datasum=True)
     # add wavelength info to header
-    wavestr = []
+    wavestr = ''
     for w in waves:
         wavestr+= ' %.1f' % w
     hdulist[0].header['WAVELNTH'] = (wavestr, 'Wavelengths in microns of input data') 
 
     # NOTETOSELF: user-settable output name?
     hdulist.writeto(os.path.join(new_directory,datacube_name),clobber=True)
-    return(cube_hdulist)
+    return(hdulist)
 
 # SWITCHED
 def process_images(process_func, hdulist, args, header_add={}):
@@ -945,7 +937,7 @@ def main(args=None):
             process_images(convert_image, hdulist, args=None, header_add = {'BUNIT': ('Jy/pixel', 'Units of image data')})
 	
         if (do_registration):
-            ref_wcs = get_ref_wcs(hdulist, main_reference_image) # TODO: error-trap
+            ref_wcs = get_ref_wcs(hdulist, main_reference_image) # TODO: error-trap, add header info?
             process_images(register_image, hdulist, args={'ang_size':ang_size, 'ref_wcs': ref_wcs})
 	
         if (do_convolution):
@@ -954,7 +946,7 @@ def main(args=None):
         if (do_resampling):
             ref_wcs = get_ref_wcs(hdulist, main_reference_image) # TODO: error-trap
             process_images(resample_image, hdulist, args={'ang_size':ang_size,'ref_wcs': ref_wcs, 'im_pixsc':im_pixsc})
-#            cube_hdulist = create_datacube(hdulist, image_directory, datacube_fname)
+            cube_hdulist = create_datacube(hdulist, image_directory, datacube_fname)
 
         if (do_seds):
             if do_resampling: # use the datacube we just made
