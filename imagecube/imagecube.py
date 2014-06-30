@@ -358,7 +358,8 @@ def construct_mef(image_directory, logfile_name):
         for extens in img_extens:
             extens_name = '%s[%1d]' % (fitsfile,extens)
             header = hdu_fits[extens].header
-            # check to see if image has reasonable scale & orientation - could do this better
+            # check to see if image has reasonable scale & orientation 
+            # TODO: decide whether this is better-placed elsewhere, better done with montage.mOverlaps ?
             pixelscale = get_pixel_scale(header)
             fov = pixelscale * float(header['NAXIS1'])
             log.info("Checking %s: is pixel scale (%.2f\") < ang_size (%.2f\") < FOV (%.2f\") ?"% (extens_name, pixelscale, ang_size,fov))
@@ -782,7 +783,10 @@ def output_mef(hdulist, fname):
 
 
 def process_images(process_func, hdulist, args, header_add={}):
-    # TODO: check primary header to see if this function has already been run, issue warning
+    for hist_line in hdulist[0].header['HISTORY']:
+        if process_func.__name__ in hist_line:
+            warnings.warn('Function %s already run on this imagecube' % process_func.__name__, AstropyUserWarning)
+
     for hdu in hdulist[1:]: # start at 1 b/c 0 is primary header, no image data
         process_func(hdu, args) # error-trap here?
 
@@ -945,7 +949,7 @@ def main(args=None):
         if (do_registration):
             try:
                 ref_wcs = get_ref_wcs(hdulist, main_reference_image) 
-                process_images(register_image, hdulist, args={'ang_size': ang_size, 'ref_wcs': ref_wcs},\ 
+                process_images(register_image, hdulist, args={'ang_size': ang_size, 'ref_wcs': ref_wcs},\
                                header_add = {'REF_IM': (main_reference_image,'Reference image for resampling/registration')})
             except KeyError:
                 warnings.warn('Can\'t find reference image %s, no registration performed' % main_reference_image, AstropyUserWarning)
