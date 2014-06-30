@@ -1,5 +1,5 @@
 # test script for imagecube
-# modified from montage_wrappers/tests/test_wrappers.py
+# modified from montage_wrapper/tests/test_wrappers.py
 from __future__ import print_function, division
 
 import os
@@ -27,7 +27,8 @@ cr1val_val = 10.5
 cr2val_val = -43.0
 crota2_val = 128.9
 
-# location of test data
+# location of test data - remote download is currently not working
+# instead, download these files by hand and put them in imagecube/data/testimgs
 test_data_loc = "http://www.canfar.phys.uvic.ca/vospace/nodes/pbarmby/imagecube/"
 test_data_files = ['I1_n5128_mosaic.fits','I2_n5128_mosaic.fits','I3_n5128_mosaic.fits','I4_n5128_mosaic.fits','n5128_pbcd_24.fits']
 
@@ -52,12 +53,12 @@ class TestImagecube(object):
 
         # get the test data and copy it to the temp directory
         if os.path.exists('../data/testimgs'): # copy from ../data/testimgs if that exists 
-            shutil.copytree('../data/testimgs',self.tmpdir+'/imagecubetest')
+            shutil.copytree('../data/testimgs',os.path.join(self.tmpdir,'imagecubetest'))
         else: # download and symlink to temp directory: NOT WORKING
-            os.makedirs(self.tmpdir+'/imagecubetest/')
+            os.makedirs(os.path.join(self.tmpdir,'imagecubetest'))
             for fname in test_data_files:
                 tmpname = download_file(test_data_loc+fname)
-                linked_name = self.tmpdir+'/imagecubetest/'+fname
+                linked_name = os.path.join(self.tmpdir,'imagecubetest/'+fname)
                 shutil.copy2(tmpname, linked_name)
 
 # end of class definition
@@ -70,7 +71,7 @@ class TestImagecube(object):
         return
 
 
-# test the helper functions
+# test the helper functions 
     def test_helpers(self):
         pixscal_arcsec = imagecube.get_pixel_scale(self.header)
         assert_allclose(pixscal_arcsec/3600.0,cdelt_val)
@@ -78,33 +79,39 @@ class TestImagecube(object):
         assert_allclose(pa,crota2_val)
         conv_fact1 = imagecube.get_conversion_factor(self.header) # should be MJy/sr to Jy/pix for MIPS
         assert_allclose(conv_fact1,u.MJy.to(u.Jy)/u.sr.to(u.arcsec**2) * (pixscal_arcsec**2))
-        racen, deccen, crota = imagecube.get_ref_wcs(self.tmpdir+'/imagecubetest/I1_n5128_mosaic.fits') 
-        assert racen == 201.243776
-        assert deccen == -43.066428
-        assert crota == 58.80616
 
 
 # test the main imagecube script    
     def test_imagecube(self):
         # go where the test data are
         orig_dir = os.getcwd()
-        os.chdir(self.tmpdir+'/imagecubetest')
+        os.chdir(os.path.join(self.tmpdir,'imagecubetest'))
         # run through the whole procedure
-        # TBD: (or should we have a zipped list of images-with-headers, and test each step individually?)
         test_argstr = '--flux_conv --im_reg --im_conv --fwhm=8 --im_regrid --im_pixsc=3.0 --ang_size=300 --im_ref n5128_pbcd_24.fits --dir ./'  
         imagecube.main(args=test_argstr)
 
-        # grab the output
-        hdulist = fits.open(self.tmpdir+'/imagecubetest/datacube/datacube.fits')
+        # check the output imagecube
+        hdulist_ic = fits.open(os.path.join(self.tmpdir,'imagecubetest/imagecube.fits'))
+        assert len(hdulist_ic) == 6
+        assert hdulist_ic[1].header['DATASUM'] == '1038490815'
+        assert hdulist_ic[3].data.shape == (102,102)
 
+        racen, deccen, crota = imagecube.get_ref_wcs(hdulist_ic,'n5128_pbcd_24.fits') 
+        assert racen == 201.36652
+        assert deccen == -43.06438
+        assert crota == 153.2133
+        hdulist_ic.close()
+
+        # check the output datacube
         # check that we get the right shape output & number of non-NaN pixels
-        assert hdulist[0].data.shape == (5,102,102)
-        valid = hdulist[0].data[~np.isnan(hdulist[0].data)]
+        hdulist_dc = fits.open(os.path.join(self.tmpdir,'imagecubetest/datacube/datacube.fits'))
+        assert hdulist_dc[0].data.shape == (5,102,102)
+        valid = hdulist_dc[0].data[~np.isnan(hdulist_dc[0].data)]
         assert len(valid) == 52020
 
         # test DATASUM against value previously computed
-        assert hdulist[0].header['DATASUM']== '842801625' 
-        hdulist.close()
+        assert hdulist_dc[0].header['DATASUM'] == '842801625' 
+        hdulist_dc.close()
         os.chdir(orig_dir)
         return
 

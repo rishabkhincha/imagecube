@@ -555,8 +555,8 @@ def merge_headers(montage_hfile, orig_header, out_file):
 
 def get_ref_wcs(hdulist, img_name):
     '''
-    get WCS parameters from extension in hdulist which
-    matches img_name
+    get WCS parameters from extension in hdulist which matches img_name
+    (TODO: make this work properly for multi-extension input)
 
     Parameters
     ----------
@@ -564,9 +564,11 @@ def get_ref_wcs(hdulist, img_name):
 
     '''
     global rot_angle
+    ref_found=False
 
     for hdu in hdulist[1:]:
         if img_name in hdu.header['ORIGFILE']:
+            ref_found = True
             lngref_input = hdu.header['CRVAL1']
             latref_input = hdu.header['CRVAL2']
             try:
@@ -575,6 +577,8 @@ def get_ref_wcs(hdulist, img_name):
                 log.info('Getting position angle from %s' % img_name)
                 rotation_pa = get_pangle(hdu.header)
                 log.info('Using PA of %.1f degrees' % rotation_pa)
+    if not ref_found:
+        raise KeyError('No ORIGFILE keyword containing %s' % img_name)
     return(lngref_input, latref_input, rotation_pa)
 
 def find_image_planes(hdulist):
@@ -749,8 +753,9 @@ def create_datacube(hdulist,  img_dir, datacube_name):
     new_wcs_header = wcs.WCS(hdulist[1].header).to_header()
 
     # copy other info into the primary header from hdulist[0].header
-    for k in ['CREATOR','DATE','LOGFILE','BUNIT']:
-        new_wcs_header[k] = (hdulist[0].header[k],hdulist[0].header.comments[k])
+    for k in ['CREATOR','DATE','LOGFILE','BUNIT','REF_IM']:
+        if k in hdulist[0].header.keys():
+            new_wcs_header[k] = (hdulist[0].header[k],hdulist[0].header.comments[k])
 
     # now use the header and data to create a new fits file
     prihdu = fits.PrimaryHDU(header=new_wcs_header, data=resampled_images)
@@ -769,7 +774,11 @@ def create_datacube(hdulist,  img_dir, datacube_name):
     return(hdulist)
 
 def output_mef(hdulist, fname):
-'842801625'
+    for hdu in hdulist:
+        hdu.add_datasum(when='Computed by imagecube')
+    hdulist[0].add_checksum(when='Computed by imagecube',override_datasum=True)
+    hdulist.writeto(imagecube_fname,clobber=True,output_verify='fix')
+    return
 
 
 def process_images(process_func, hdulist, args, header_add={}):
@@ -786,8 +795,6 @@ def process_images(process_func, hdulist, args, header_add={}):
     return
 
 
-
-# PARTLY SWITCHED
 def output_seds(cube_hdu):
     """
     Makes pixel-by-pixel SEDs.
@@ -805,6 +812,7 @@ def output_seds(cube_hdu):
     wavelength = cube_hdu.header['WAVELNTH']
 
     sed_data = []
+    #TODO: finish converting this to use cube_hdu
     for i in range(0, num_wavelengths):
         for j in range(len(all_image_data[i])):
             for k in range(len(all_image_data[i][j])):
@@ -935,16 +943,24 @@ def main(args=None):
             process_images(convert_image, hdulist, args=None, header_add = {'BUNIT': ('Jy/pixel', 'Units of image data')})
 	
         if (do_registration):
-            ref_wcs = get_ref_wcs(hdulist, main_reference_image) # TODO: error-trap, add header info?
-            process_images(register_image, hdulist, args={'ang_size':ang_size, 'ref_wcs': ref_wcs})
+            try:
+                ref_wcs = get_ref_wcs(hdulist, main_reference_image) 
+                process_images(register_image, hdulist, args={'ang_size': ang_size, 'ref_wcs': ref_wcs},\ 
+                               header_add = {'REF_IM': (main_reference_image,'Reference image for resampling/registration')})
+            except KeyError:
+                warnings.warn('Can\'t find reference image %s, no registration performed' % main_reference_image, AstropyUserWarning)
 	
         if (do_convolution):
             process_images(convolve_image, hdulist, args={'kernel_directory': kernel_directory, 'fwhm_input':fwhm_input})
 	
         if (do_resampling):
-            ref_wcs = get_ref_wcs(hdulist, main_reference_image) # TODO: error-trap
-            process_images(resample_image, hdulist, args={'ang_size':ang_size,'ref_wcs': ref_wcs, 'im_pixsc':im_pixsc})
-            cube_hdulist = create_datacube(hdulist, image_directory, datacube_fname)
+            try:
+                ref_wcs = get_ref_wcs(hdulist, main_reference_image) 
+                process_images(resample_image, hdulist, args={'ang_size': ang_size, 'ref_wcs': ref_wcs, 'im_pixsc': im_pixsc},\
+                               header_add = {'REF_IM': (main_reference_image,'Reference image for resampling/registration')})
+                cube_hdulist = create_datacube(hdulist, image_directory, datacube_fname)
+            except KeyError:
+                warnings.warn('Can\'t find reference image %s, no resampling performed' % main_reference_image, AstropyUserWarning)
 
         if (do_seds):
             if do_resampling: # use the datacube we just made
