@@ -45,6 +45,7 @@ class TestImagecube(object):
         w.wcs.crota = [0, crota2_val]
 
         self.header = w.to_header()
+        self.header['INSTRUME']= 'MIPS'
 
         # make a temporary directory for the input and output
         self.tmpdir = tempfile.mkdtemp()
@@ -75,10 +76,8 @@ class TestImagecube(object):
         assert_allclose(pixscal_arcsec/3600.0,cdelt_val)
         pa = imagecube.get_pangle(self.header)
         assert_allclose(pa,crota2_val)
-        conv_fact1 = imagecube.get_conversion_factor(self.header,'MIPS') # assumed in MJy/sr
+        conv_fact1 = imagecube.get_conversion_factor(self.header) # should be MJy/sr to Jy/pix for MIPS
         assert_allclose(conv_fact1,u.MJy.to(u.Jy)/u.sr.to(u.arcsec**2) * (pixscal_arcsec**2))
-        conv_fact2 = imagecube.get_conversion_factor(self.header,'BLINC') # unknown instrument, should give zero
-        assert_allclose(conv_fact2,0.0)
         racen, deccen, crota = imagecube.get_ref_wcs(self.tmpdir+'/imagecubetest/I1_n5128_mosaic.fits') 
         assert racen == 201.243776
         assert deccen == -43.066428
