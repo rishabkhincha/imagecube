@@ -330,8 +330,8 @@ def parse_command_line(args):
         try:
             with open(main_reference_image): pass
         except IOError:
-            print("The file %s could not be found in the directory %s. \
-                   Cannot run without reference image, exiting." % (main_reference_image, image_directory))
+            print("The file %s could not be found in the directory %s. Cannot run without reference image, exiting." 
+                  % (main_reference_image, image_directory))
             parse_status = 2
     return(parse_status)
 
@@ -367,7 +367,7 @@ def construct_mef(image_directory, logfile_name):
                 try:
 	            wavelength = header['WAVELNTH'] 
 	            header['WAVELNTH'] = (wavelength, 'micron') # add the unit if it's not already there
-                    hdulist.append(hdu_fits[extens])
+                    hdulist.append(hdu_fits[extens].copy())
 	            hdulist[-1].header['ORIGFILE'] =  (os.path.basename(extens_name), 'Original file name')
                 except KeyError:
 	            warnings.warn('Image %s has no WAVELNTH keyword, will not be used' % extens_name, AstropyUserWarning)
@@ -619,6 +619,8 @@ def register_image(hdu, args):
     args: info about common WCS
 
     """
+#    log.info('Processing plane %s' % hdu.header['ORIGFILE'])
+
     # get WCS info for the reference image
     lngref_input, latref_input, rotation_pa = args['ref_wcs']
     width_and_height = u.arcsec.to(u.deg, args['ang_size'])
@@ -777,15 +779,16 @@ def create_datacube(hdulist,  img_dir, datacube_name):
 def output_mef(hdulist, fname):
     for hdu in hdulist:
         hdu.add_datasum(when='Computed by imagecube')
-    hdulist[0].add_checksum(when='Computed by imagecube',override_datasum=True)
-    hdulist.writeto(imagecube_fname,clobber=True,output_verify='fix')
+    hdulist[0].add_checksum(when='Computed by imagecube', override_datasum=True)
+    hdulist.writeto(fname, clobber=True, output_verify='fix')
     return
 
 
 def process_images(process_func, hdulist, args, header_add={}):
-    for hist_line in hdulist[0].header['HISTORY']:
-        if process_func.__name__ in hist_line:
-            warnings.warn('Function %s already run on this imagecube' % process_func.__name__, AstropyUserWarning)
+    if 'HISTORY' in hdulist[0].header:
+        for hist_line in hdulist[0].header['HISTORY']:
+            if process_func.__name__ in hist_line:
+                warnings.warn('Function %s already run on this imagecube' % process_func.__name__, AstropyUserWarning)
 
     for hdu in hdulist[1:]: # start at 1 b/c 0 is primary header, no image data
         process_func(hdu, args) # error-trap here?
@@ -948,8 +951,9 @@ def main(args=None):
 	
         if (do_registration):
             try:
-                ref_wcs = get_ref_wcs(hdulist, main_reference_image) 
-                process_images(register_image, hdulist, args={'ang_size': ang_size, 'ref_wcs': ref_wcs},\
+                ref_wcs = get_ref_wcs(hdulist, main_reference_image)
+#                log.info('Successfully found reference WCS')
+                process_images(register_image, hdulist, args={'ang_size': ang_size, 'ref_wcs': ref_wcs},
                                header_add = {'REF_IM': (main_reference_image,'Reference image for resampling/registration')})
             except KeyError:
                 warnings.warn('Can\'t find reference image %s, no registration performed' % main_reference_image, AstropyUserWarning)
@@ -960,7 +964,7 @@ def main(args=None):
         if (do_resampling):
             try:
                 ref_wcs = get_ref_wcs(hdulist, main_reference_image) 
-                process_images(resample_image, hdulist, args={'ang_size': ang_size, 'ref_wcs': ref_wcs, 'im_pixsc': im_pixsc},\
+                process_images(resample_image, hdulist, args={'ang_size': ang_size, 'ref_wcs': ref_wcs, 'im_pixsc': im_pixsc},
                                header_add = {'REF_IM': (main_reference_image,'Reference image for resampling/registration')})
                 cube_hdulist = create_datacube(hdulist, image_directory, datacube_fname)
             except KeyError:
