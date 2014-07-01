@@ -360,6 +360,7 @@ def construct_mef(image_directory, logfile_name):
             header = hdu_fits[extens].header
             # check to see if image has reasonable scale & orientation 
             # TODO: decide whether this is better-placed elsewhere, better done with montage.mOverlaps ?
+
             pixelscale = get_pixel_scale(header)
             fov = pixelscale * float(header['NAXIS1'])
             log.info("Checking %s: is pixel scale (%.2f\") < ang_size (%.2f\") < FOV (%.2f\") ?"% (extens_name, pixelscale, ang_size,fov))
@@ -741,7 +742,7 @@ def create_datacube(hdulist,  img_dir, datacube_name):
 
     """
     # make new directory for output, if needed
-    new_directory = os.path.join(image_directory,"datacube")
+    new_directory = os.path.join(img_dir,"datacube")
     if not os.path.exists(new_directory):
         os.makedirs(new_directory)
 
