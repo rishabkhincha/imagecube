@@ -353,28 +353,32 @@ def construct_mef(image_directory, logfile_name):
 
     # get images
     for fitsfile in all_files:
-        hdu_fits = fits.open(fitsfile)
-        img_extens = find_image_planes(hdu_fits) # find all science extensions
-        for extens in img_extens:
-            extens_name = '%s[%1d]' % (fitsfile,extens)
-            header = hdu_fits[extens].header
-            # check to see if image has reasonable scale & orientation 
-            # TODO: decide whether this is better-placed elsewhere, better done with montage.mOverlaps ?
-
-            pixelscale = get_pixel_scale(header)
-            fov = pixelscale * float(header['NAXIS1'])
-            log.info("Checking %s: is pixel scale (%.2f\") < ang_size (%.2f\") < FOV (%.2f\") ?"% (extens_name, pixelscale, ang_size,fov))
-            if (pixelscale < ang_size < fov): # now check for wavelength keyword
-                try:
-	            wavelength = header['WAVELNTH'] 
-	            header['WAVELNTH'] = (wavelength, 'micron') # add the unit if it's not already there
-                    hdulist.append(hdu_fits[extens].copy())
-	            hdulist[-1].header['ORIGFILE'] =  (os.path.basename(extens_name), 'Original file name')
-                except KeyError:
-	            warnings.warn('Image %s has no WAVELNTH keyword, will not be used' % extens_name, AstropyUserWarning)
-            else:
-	         warnings.warn("Image %s does not meet the above criteria." % extens_name, AstropyUserWarning) 
-        hdu_fits.close() # end of loop over all extensions in file
+        if fitsfile == imagecube_fname: # don't include existing imagecube
+            warnings.warn("Existing %s found, will be clobbered." % imagecube_fname, AstropyUserWarning) 
+            continue
+        else:
+            hdu_fits = fits.open(fitsfile)
+            img_extens = find_image_planes(hdu_fits) # find all science extensions
+            for extens in img_extens:
+                extens_name = '%s[%1d]' % (fitsfile,extens)
+                header = hdu_fits[extens].header
+                # check to see if image has reasonable scale & orientation 
+                # TODO: decide whether this is better-placed elsewhere, better done with montage.mOverlaps ?
+		
+                pixelscale = get_pixel_scale(header)
+                fov = pixelscale * float(header['NAXIS1'])
+                log.info("Checking %s: is pixel scale (%.2f\") < ang_size (%.2f\") < FOV (%.2f\") ?"% (extens_name, pixelscale, ang_size,fov))
+                if (pixelscale < ang_size < fov): # now check for wavelength keyword
+                    try:
+                        wavelength = header['WAVELNTH'] 
+                        header['WAVELNTH'] = (wavelength, 'micron') # add the unit if it's not already there
+                        hdulist.append(hdu_fits[extens].copy())
+                        hdulist[-1].header['ORIGFILE'] =  (os.path.basename(extens_name), 'Original file name')
+                    except KeyError:
+                        warnings.warn('Image %s has no WAVELNTH keyword, will not be used' % extens_name, AstropyUserWarning)
+		    else:
+                        warnings.warn("Image %s does not meet the above criteria." % extens_name, AstropyUserWarning) 
+            hdu_fits.close() # end of loop over all extensions in file
     # end of loop over files
 	
     if len(hdulist) > 1: # we have some valid data!
