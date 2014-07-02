@@ -4,10 +4,9 @@
 # This package accepts FITS images from the user and delivers images that have
 # been converted to the same flux units, registered to a common world 
 # coordinate system (WCS), convolved to a common resolution, and resampled to a
-# common pixel scale requesting the Nyquist sampling rate.
-# Each step can be run separately or as a whole.
-# The user should provide us with information regarding wavelength, pixel 
-# scale extension of the cube, instrument, physical size of the target, and WCS
+# common pixel scale. The steps can be run separately or all together.
+# The user should provide information regarding wavelength, pixel 
+# scale of the cube, instrument, physical size of the target, and WCS
 # header information.
 
 from __future__ import print_function, division
@@ -250,6 +249,17 @@ If any of these keywords are missing, imagecube will attempt to determine them.
 The calculated values will be present in the headers of the output images; 
 if they are not the desired values, please check the headers
 of your input images and try again.
+
+OUTPUT:
+imagecube.fits is a multi-extension FITS file which contains the processed input
+images and a record of the processing they have undergone. If an imagecube.fits
+file already exists in the directory pointed to by --dir, the task will process
+that file and ignore other files in that directory. It *will* redo tasks that have
+already been performed (which may lead to strange results), issuing a warning.
+
+datacube/datacube.fits is a 3D FITS file containing a 'stacked' version of the input
+images. It is only produced if the im_resamp flag is set.
+
     """)
 
 
