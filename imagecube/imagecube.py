@@ -170,7 +170,7 @@ def print_usage():
     print("""
 Usage: """ + sys.argv[0] + """ --dir <directory> --ang_size <angular_size>
 [--flux_conv] [--im_reg] [--im_ref <filename>] [--rot_angle <number in degrees>] 
-[--im_conv] [--fwhm <fwhm value>] [--kernels <kernel directory>] [--im_regrid] 
+[--im_conv] [--fwhm <fwhm value>] [--kernels <kernel directory>] [--im_resamp] 
 [--im_pixsc <number in arcsec>] [--seds] [--cleanup] [--help]  
 
 dir: the path to the directory containing the <input FITS files> to be 
@@ -215,16 +215,16 @@ images for each of the input images. If all input images do not have a
 corresponding kernel image, then the Gaussian convolution will be performed for
 these images.
 
-im_regrid: perform regridding of the convolved images to a common
+im_resamp: perform resampling of the convolved images to a common
 pixel scale. The pixel scale is defined by the im_pxsc parameter.
 
-im_pixsc: the common pixel scale (in arcsec) used for the regridding
-of the images in the im_regrid. It is a good idea the pixel scale and angular
-resolution of the images in the regrid step to conform to the Nyquist sampling
+im_pixsc: the common pixel scale (in arcsec) used for the resampling
+of the images in im_resamp. It is a good idea the pixel scale and angular
+resolution of the images in the resample step to conform to the Nyquist sampling
 rate: angular resolution = """ + `NYQUIST_SAMPLING_RATE` + """ * im_pixsc
 
 seds:  produce the spectral energy distribution on a pixel-by-pixel
-basis, on the regridded images.
+basis, on the resampded images.
 
 cleanup: if this parameter is present, then output files from previous 
 executions of the script are removed and no processing is done.
@@ -280,7 +280,7 @@ def parse_command_line(args):
         opts, args = getopt.getopt(args, "", ["dir=", "ang_size=",
                                    "flux_conv", "im_conv", "im_reg", "im_ref=",
                                    "rot_angle=", "im_conv", "fwhm=", "kernels=", 
-                                   "im_pixsc=","im_regrid", "seds", "cleanup", "help"])
+                                   "im_pixsc=","im_resamp", "seds", "cleanup", "help"])
     except getopt.GetoptError, exc:
         print(exc.msg)
         print("An error occurred. Check your parameters and try again.")
@@ -307,7 +307,7 @@ def parse_command_line(args):
             rot_angle = float(arg)
         elif opt in ("--im_conv"):
             do_convolution = True
-        elif opt in ("--im_regrid"):
+        elif opt in ("--im_resamp"):
             do_resampling = True
         elif opt in ("--seds"):
             do_seds = True
@@ -643,8 +643,8 @@ def register_image(hdu, args):
                               pix_size=native_pixelscale, rotation=rotation_pa)
     merge_headers(artificial_filename, hdu.header, artificial_filename)
     # reproject using montage
-    outhdu = montage.wrappers.reproject_hdu(hdu, header=artificial_filename)  #, exact_size=True)  
-    # replace data and header with montage output - problem here in primary vs image HDu?
+    outhdu = montage.wrappers.reproject_hdu(hdu, header=artificial_filename, exact_size=True)  
+    # replace data and header with montage output 
     hdu.data = outhdu.data
     hdu.header = outhdu.header
     # delete the file with header info
@@ -727,9 +727,9 @@ def resample_image(hdu, args):
                           equinox=2000.0, height=height_input, 
                           pix_size=args['im_pixsc'], rotation=rotation_pa)
 
-    # generate header for regridded image
+    # generate header for resampled image
     merge_headers(artificial_header, hdu.header, artificial_header)
-    # do the regrid 
+    # do the resample 
     outhdu = montage.wrappers.reproject_hdu(hdu, header=artificial_header)  
     # delete the header file
     os.unlink(artificial_header)
@@ -752,12 +752,16 @@ def create_datacube(hdulist,  img_dir, datacube_name):
     if not os.path.exists(new_directory):
         os.makedirs(new_directory)
 
-    # put the image data into a list (not sure this is quite the right way to do it, but seems to work)
+    # collect the image data and wavelength info in a list
     resampled_images=[]
     waves = []
     for hdu in hdulist[1:]:
         resampled_images.append(hdu.data)
         waves.append(hdu.header['WAVELNTH'])
+    
+    # put the data into an array and get the axes set up correctly
+    newdata = np.dstack(resampled_images)    
+    newdata = newdata.swapaxes(0,2).swapaxes(1,2)    
 
     # grab the WCS info from the first input image
     new_wcs_header = wcs.WCS(hdulist[1].header).to_header()
@@ -767,8 +771,9 @@ def create_datacube(hdulist,  img_dir, datacube_name):
         if k in hdulist[0].header.keys():
             new_wcs_header[k] = (hdulist[0].header[k],hdulist[0].header.comments[k])
 
+    print(new_wcs_header)
     # now use the header and data to create a new fits file
-    prihdu = fits.PrimaryHDU(header=new_wcs_header, data=resampled_images)
+    prihdu = fits.PrimaryHDU(header=new_wcs_header, data=newdata)
     print('created new primary') 
     hdulist = fits.HDUList([prihdu])
     print('created new HDUlist')
@@ -960,7 +965,6 @@ def main(args=None):
         if (do_registration):
             try:
                 ref_wcs = get_ref_wcs(hdulist, main_reference_image)         # grab the reference WCS info 
-#                log.info('Successfully found reference WCS')
                 process_images(register_image, hdulist, args={'ang_size': ang_size, 'ref_wcs': ref_wcs},
                                header_add = {'REF_IM': (main_reference_image,'Reference image for resampling/registration')})
             except KeyError:
