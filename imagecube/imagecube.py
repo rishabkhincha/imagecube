@@ -988,7 +988,10 @@ def main(args=None):
                 ref_wcs = get_ref_wcs(hdulist, main_reference_image)         # grab the reference WCS info 
                 process_images(resample_image, hdulist, args={'ang_size': ang_size, 'ref_wcs': ref_wcs, 'im_pixsc': im_pixsc},
                                header_add = {'REF_IM': (main_reference_image,'Reference image for resampling/registration')})
-                cube_hdulist = create_datacube(hdulist, image_directory, datacube_fname)
+                try:
+                    cube_hdulist = create_datacube(hdulist, image_directory, datacube_fname)
+                except ValueError:
+                    warnings.warn('Problem creating datacube; check pixel size', AstropyUserWarning)
             except KeyError:
                 warnings.warn('Can\'t find reference image %s, no resampling performed' % main_reference_image, AstropyUserWarning)
 
