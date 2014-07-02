@@ -376,8 +376,8 @@ def construct_mef(image_directory, logfile_name):
                         hdulist[-1].header['ORIGFILE'] =  (os.path.basename(extens_name), 'Original file name')
                     except KeyError:
                         warnings.warn('Image %s has no WAVELNTH keyword, will not be used' % extens_name, AstropyUserWarning)
-		    else:
-                        warnings.warn("Image %s does not meet the above criteria." % extens_name, AstropyUserWarning) 
+                else:
+                    warnings.warn("Image %s does not meet the above criteria." % extens_name, AstropyUserWarning) 
             hdu_fits.close() # end of loop over all extensions in file
     # end of loop over files
 	
@@ -633,6 +633,8 @@ def register_image(hdu, args):
     native_pixelscale = get_pixel_scale(hdu.header)
 
     # make the new header & merge it with old
+    # TODO: deal with case where lngref_input, latref_input not in J2000? 
+    #       (or maybe that's so rare that we don't care)
     artificial_filename = tempfile.mktemp() 
     montage.commands.mHdr(`lngref_input` + ' ' + `latref_input`, 
                               width_and_height, artificial_filename, 
@@ -767,7 +769,9 @@ def create_datacube(hdulist,  img_dir, datacube_name):
 
     # now use the header and data to create a new fits file
     prihdu = fits.PrimaryHDU(header=new_wcs_header, data=resampled_images)
+    print('created new primary') 
     hdulist = fits.HDUList([prihdu])
+    print('created new HDUlist')
     # add checksums to header
     hdulist[0].add_datasum(when='Computed by imagecube')
     hdulist[0].add_checksum(when='Computed by imagecube',override_datasum=True)
@@ -948,7 +952,6 @@ def main(args=None):
                     sys.exit()
                 else:
                     return
-        # grab the reference WCS info 
         
         # now work on the imagecube
         if (do_conversion):
@@ -956,7 +959,7 @@ def main(args=None):
 	
         if (do_registration):
             try:
-                ref_wcs = get_ref_wcs(hdulist, main_reference_image)
+                ref_wcs = get_ref_wcs(hdulist, main_reference_image)         # grab the reference WCS info 
 #                log.info('Successfully found reference WCS')
                 process_images(register_image, hdulist, args={'ang_size': ang_size, 'ref_wcs': ref_wcs},
                                header_add = {'REF_IM': (main_reference_image,'Reference image for resampling/registration')})
@@ -968,7 +971,7 @@ def main(args=None):
 	
         if (do_resampling):
             try:
-                ref_wcs = get_ref_wcs(hdulist, main_reference_image) 
+                ref_wcs = get_ref_wcs(hdulist, main_reference_image)         # grab the reference WCS info 
                 process_images(resample_image, hdulist, args={'ang_size': ang_size, 'ref_wcs': ref_wcs, 'im_pixsc': im_pixsc},
                                header_add = {'REF_IM': (main_reference_image,'Reference image for resampling/registration')})
                 cube_hdulist = create_datacube(hdulist, image_directory, datacube_fname)
