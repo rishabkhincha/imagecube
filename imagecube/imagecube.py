@@ -693,7 +693,9 @@ def convolve_images(images_with_headers):
             hdulist.close()
             # NOTETOSELF: not completely clear whether Gaussian2DKernel 'width' is sigma or FWHM
             # also, previous version had kernel being 3x3 pixels which seems pretty small!
-
+            # NOTE_FROM_RK: width is no longer a parameter from gaussian kernels 
+            # confirmed from the astropy repository posts, the parameter is sigma
+            
             # construct kernel
             # print("Constructing kernel : ", sigma_input)
             gaus_kernel_inp = Gaussian2DKernel(sigma_input)
