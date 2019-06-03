@@ -53,7 +53,7 @@ def print_usage():
 Usage: """ + sys.argv[0] + """ --dir <directory> --ang_size <angular_size>
 [--flux_conv] [--im_reg] [--im_ref <filename>] [--rot_angle <number in degrees>] 
 [--im_conv] [--fwhm <fwhm value>] [--kernels <kernel directory>] [--im_regrid] 
-[--im_pixsc <number in arcsec>] [--seds] [--cleanup] [--help]  
+[--im_pixsc <number in arcsec>] [--seds] [--make2d] [--cleanup] [--help]  
 
 dir: the path to the directory containing the <input FITS files> to be 
 processed. For multi-extension FITS files, currently only the first extension
@@ -107,6 +107,8 @@ rate: angular resolution = """ + str(NYQUIST_SAMPLING_RATE) + """ * im_pixsc
 
 seds:  produce the spectral energy distribution on a pixel-by-pixel
 basis, on the regridded images.
+
+make2d: along with the true 3D datacube to be built, create a multi extension file
 
 cleanup: if this parameter is present, then output files from previous 
 executions of the script are removed and no processing is done.
