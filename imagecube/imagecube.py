@@ -108,7 +108,7 @@ rate: angular resolution = """ + str(NYQUIST_SAMPLING_RATE) + """ * im_pixsc
 seds:  produce the spectral energy distribution on a pixel-by-pixel
 basis, on the regridded images.
 
-make2d: along with the true 3D datacube to be built, create a multi extension file
+make2d: along with the true 3D datacube to be built, create a multi extension file, stored with a _2d appended to the datacube filename
 
 cleanup: if this parameter is present, then output files from previous 
 executions of the script are removed and no processing is done.
