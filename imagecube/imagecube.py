@@ -154,6 +154,7 @@ def parse_command_line(args):
     global kernel_directory
     global im_pixsc
     global rot_angle
+    global make_2D
 
 ##TODO: switch over to argparse
     parse_status = 0
@@ -161,7 +162,7 @@ def parse_command_line(args):
         opts, args = getopt.getopt(args, "", ["dir=", "ang_size=",
                                    "flux_conv", "im_conv", "im_reg", "im_ref=",
                                    "rot_angle=", "im_conv", "fwhm=", "kernels=", 
-                                   "im_pixsc=","im_regrid", "seds", "cleanup", "help"])
+                                   "im_pixsc=","im_regrid", "seds", "cleanup", "help", "make2d"])
     except getopt.GetoptError as exc:
         print(exc.msg)
         print("An error occurred. Check your parameters and try again.")
@@ -198,6 +199,8 @@ def parse_command_line(args):
             main_reference_image = arg
         elif opt in ("--fwhm"):
             fwhm_input = float(arg)
+        elif opt in ("--make2d"):
+            make_2D=True
         elif opt in ("--kernels"):
             kernel_directory = arg
             if (not os.path.isdir(kernel_directory)):
@@ -660,7 +663,7 @@ def create_data_cube(images_with_headers, logfile_name):
     new_directory = image_directory + "/datacube/"
     if not os.path.exists(new_directory):
         os.makedirs(new_directory)
-
+    # print("In create data cube : ", len(images_with_headers))
     # put the image data into a list (not sure this is quite the right way to do it)
     resampled_images=[]
     for i in range(0, len(images_with_headers)):
@@ -687,10 +690,41 @@ def create_data_cube(images_with_headers, logfile_name):
 
     # now use the header and data to create a new fits file
     prihdu = fits.PrimaryHDU(header=prihdr, data=resampled_images)
-    hdulist = fits.HDUList([prihdu])
+    hdulist = fits.HDUList(prihdu)
     hdulist[0].add_datasum(when='Computed by imagecube')
     hdulist[0].add_checksum(when='Computed by imagecube',override_datasum=True)
     hdulist.writeto(new_directory + '/' + 'datacube.fits',overwrite=True)
+
+    if(make_2D):    
+        # make a new header with the WCS info
+        prihdr = new_wcs.to_header()
+        # put some other information in the header
+        prihdr['CREATOR'] = ('IMAGECUBE', 'Software used to create this file') # TODO: add version
+        prihdr['DATE'] = (datetime.now().strftime('%Y-%m-%d'), 'File creation date')
+        prihdr['LOGFILE'] = (logfile_name, 'imagecube log file') 
+        if do_conversion:
+            prihdr['BUNIT'] = ('Jy/pixel', 'Units of image data') 
+           
+
+        # now use this header to create a new fits file
+        # put the image data into a list (not sure this is quite the right way to do it)
+        prihdu = fits.PrimaryHDU(header=prihdr)
+        cube_hdulist = fits.HDUList([prihdu])
+
+        for i in range(0, len(images_with_headers)):
+            original_filename = os.path.basename(images_with_headers[i][2])
+            original_directory = os.path.dirname(images_with_headers[i][2])
+            resampled_filename = (original_directory + "/resampled/" + 
+                                  original_filename  + "_resampled.fits")
+
+
+            hdulist = fits.open(resampled_filename)
+            cube_hdulist.append(hdulist[0])
+            hdulist.close()
+
+
+        cube_hdulist.writeto(new_directory + '/' + 'datacube_2d.fits',clobber=True)
+
     return
 
 
@@ -802,6 +836,7 @@ def main(args=None):
     global kernel_directory
     global im_pixsc
     global rot_angle
+    global make_2D
     ang_size = ''
     image_directory = ''
     main_reference_image = ''
@@ -814,6 +849,8 @@ def main(args=None):
     do_cleanup = False
     kernel_directory = ''
     im_pixsc = ''
+
+    make_2D = False
 
     # note start time for log
     start_time = datetime.now()
