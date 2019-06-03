@@ -695,7 +695,38 @@ def create_data_cube(images_with_headers, logfile_name):
     hdulist[0].add_checksum(when='Computed by imagecube',override_datasum=True)
     hdulist.writeto(new_directory + '/' + 'datacube.fits',overwrite=True)
 
-    
+
+    #if the 2D structure of the file is also to be created
+    if(make_2D):    
+        # make a new header with the WCS info
+        prihdr = new_wcs.to_header()
+        # put some other information in the header
+        prihdr['CREATOR'] = ('IMAGECUBE', 'Software used to create this file') # TODO: add version
+        prihdr['DATE'] = (datetime.now().strftime('%Y-%m-%d'), 'File creation date')
+        prihdr['LOGFILE'] = (logfile_name, 'imagecube log file') 
+        if do_conversion:
+            prihdr['BUNIT'] = ('Jy/pixel', 'Units of image data') 
+           
+
+        # now use this header to create a new fits file
+        # put the image data into a list (not sure this is quite the right way to do it)
+        prihdu = fits.PrimaryHDU(header=prihdr)
+        cube_hdulist = fits.HDUList([prihdu])
+
+        for i in range(0, len(images_with_headers)):
+            original_filename = os.path.basename(images_with_headers[i][2])
+            original_directory = os.path.dirname(images_with_headers[i][2])
+            resampled_filename = (original_directory + "/resampled/" + 
+                                  original_filename  + "_resampled.fits")
+
+
+            hdulist = fits.open(resampled_filename)
+            cube_hdulist.append(hdulist[0])
+            hdulist.close()
+
+
+        cube_hdulist.writeto(new_directory + '/' + 'datacube_2d.fits',clobber=True)
+
     return
 
 
