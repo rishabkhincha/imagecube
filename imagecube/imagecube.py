@@ -39,124 +39,10 @@ matplotlib.use('PS')
 import matplotlib.pyplot as plt
 from matplotlib import rc
 
-NYQUIST_SAMPLING_RATE = 3.3
-"""
-Code constant: NYQUIST_SAMPLING_RATE
 
-Some explanation of where this value comes from is needed.
+# import the file containing all the constants
+from imagecube_constants import *
 
-"""
-
-MJY_PER_SR_TO_JY_PER_ARCSEC2 = u.MJy.to(u.Jy)/u.sr.to(u.arcsec**2)
-"""
-Code constant: MJY_PER_SR_TO_JY_PER_ARCSEC2
-
-Factor for converting Spitzer (MIPS and IRAC)  units from MJy/sr to
-Jy/(arcsec^2)
-
-"""
-
-FUV_LAMBDA_CON = 1.40 * 10**(-15)
-"""
-Code constant: FUV_LAMBDA_CON
-
-Calibration from CPS to Flux in [erg sec-1 cm-2 AA-1], as given in GALEX
-for the FUV filter.
-http://galexgi.gsfc.nasa.gov/docs/galex/FAQ/counts_background.html
-
-"""
-
-NUV_LAMBDA_CON = 2.06 * 10**(-16)
-"""
-Code constant: NUV_LAMBDA_CON
-
-calibration from CPS to Flux in [erg sec-1 cm-2 AA-1], as given in GALEX
-for the NUV filter.
-http://galexgi.gsfc.nasa.gov/docs/galex/FAQ/counts_background.html
-
-"""
-
-FVEGA_J = 1594
-"""
-Code constant: FVEGA_J
-
-Flux value (in Jy) of Vega for the 2MASS J filter.
-
-"""
-
-FVEGA_H = 1024
-"""
-Code constant: FVEGA_H
-
-Flux value (in Jy) of Vega for the 2MASS H filter.
-
-"""
-
-FVEGA_KS = 666.7
-"""
-Code constant: FVEGA_KS
-
-Flux value (in Jy) of Vega for the 2MASS Ks filter.
-
-"""
-
-WAVELENGTH_2MASS_J = 1.2409
-"""
-Code constant: WAVELENGTH_2MASS_J
-
-Representative wavelength (in micron) for the 2MASS J filter
-
-"""
-
-WAVELENGTH_2MASS_H = 1.6514
-"""
-Code constant: WAVELENGTH_2MASS_H
-
-Representative wavelength (in micron) for the 2MASS H filter
-
-"""
-
-WAVELENGTH_2MASS_KS = 2.1656
-"""
-Code constant: WAVELENGTH_2MASS_KS
-
-Representative wavelength (in micron) for the 2MASS Ks filter
-
-"""
-
-JY_CONVERSION = u.Jy.to(u.erg / u.cm**2 / u.s / u.Hz, 1., 
-                        equivalencies=u.spectral_density(u.AA, 1500))  ** -1
-"""
-Code constant: JY_CONVERSION
-
-This is to convert the GALEX flux units given in erg/s/cm^2/Hz to Jy.
-
-"""
-
-S250_BEAM_AREA = 423
-"""
-Code constant: S250_BEAM_AREA
-
-Beam area (arcsec^2) for SPIRE 250 band.
-From SPIRE Observer's Manual v2.4.
-
-"""
-S350_BEAM_AREA = 751
-"""
-Code constant: S250_BEAM_AREA
-
-Beam area (arcsec^2) for SPIRE 350 band.
-From SPIRE Observer's Manual v2.4.
-
-"""
-S500_BEAM_AREA = 1587
-"""
-Code constant: S500_BEAM_AREA
-
-Beam area (arcsec^2) for SPIRE 500 band.
-From SPIRE Observer's Manual v2.4.
-
-"""
 
 def print_usage():
     """
@@ -167,7 +53,7 @@ def print_usage():
 Usage: """ + sys.argv[0] + """ --dir <directory> --ang_size <angular_size>
 [--flux_conv] [--im_reg] [--im_ref <filename>] [--rot_angle <number in degrees>] 
 [--im_conv] [--fwhm <fwhm value>] [--kernels <kernel directory>] [--im_regrid] 
-[--im_pixsc <number in arcsec>] [--seds] [--cleanup] [--help]  
+[--im_pixsc <number in arcsec>] [--seds] [--make2d] [--cleanup] [--help]  
 
 dir: the path to the directory containing the <input FITS files> to be 
 processed. For multi-extension FITS files, currently only the first extension
@@ -217,10 +103,12 @@ pixel scale. The pixel scale is defined by the im_pxsc parameter.
 im_pixsc: the common pixel scale (in arcsec) used for the regridding
 of the images in the im_regrid. It is a good idea the pixel scale and angular
 resolution of the images in the regrid step to conform to the Nyquist sampling
-rate: angular resolution = """ + `NYQUIST_SAMPLING_RATE` + """ * im_pixsc
+rate: angular resolution = """ + str(NYQUIST_SAMPLING_RATE) + """ * im_pixsc
 
 seds:  produce the spectral energy distribution on a pixel-by-pixel
 basis, on the regridded images.
+
+make2d: along with the true 3D datacube to be built, create a multi extension file, stored with a _2d appended to the datacube filename
 
 cleanup: if this parameter is present, then output files from previous 
 executions of the script are removed and no processing is done.
@@ -268,6 +156,7 @@ def parse_command_line(args):
     global kernel_directory
     global im_pixsc
     global rot_angle
+    global make_2D
 
 ##TODO: switch over to argparse
     parse_status = 0
@@ -275,8 +164,8 @@ def parse_command_line(args):
         opts, args = getopt.getopt(args, "", ["dir=", "ang_size=",
                                    "flux_conv", "im_conv", "im_reg", "im_ref=",
                                    "rot_angle=", "im_conv", "fwhm=", "kernels=", 
-                                   "im_pixsc=","im_regrid", "seds", "cleanup", "help"])
-    except getopt.GetoptError, exc:
+                                   "im_pixsc=","im_regrid", "seds", "cleanup", "help", "make2d"])
+    except getopt.GetoptError as exc:
         print(exc.msg)
         print("An error occurred. Check your parameters and try again.")
         parse_status = 2
@@ -312,6 +201,8 @@ def parse_command_line(args):
             main_reference_image = arg
         elif opt in ("--fwhm"):
             fwhm_input = float(arg)
+        elif opt in ("--make2d"):
+            make_2D=True
         elif opt in ("--kernels"):
             kernel_directory = arg
             if (not os.path.isdir(kernel_directory)):
@@ -365,6 +256,7 @@ def get_conversion_factor(header, instrument):
         conversion_factor = (MJY_PER_SR_TO_JY_PER_ARCSEC2) * (pixelscale**2)
 
     elif (instrument == 'GALEX'):
+        # there seems to be a different name for wavelength in some images, look into it
         wavelength = u.um.to(u.angstrom, float(header['WAVELNTH']))
         f_lambda_con = 0
         # I am using a < comparison here to account for the possibility that
@@ -457,7 +349,7 @@ def convert_images(images_with_headers):
             + ' convert original BUNIT into Jy/pixel.'
         )
         hdu = fits.PrimaryHDU(converted_data_array, images_with_headers[i][1])
-        hdu.writeto(converted_filename, clobber=True)
+        hdu.writeto(converted_filename, overwrite=True)
     return
 
 #modified from aplpy.wcs_util.get_pixel_scales
@@ -521,7 +413,7 @@ def merge_headers(montage_hfile, orig_header, out_file):
             del orig_header[cdm] # delete the CD matrix
         for cdp in ['CDELT1','CDELT2','CROTA2']: 
             orig_header[cdp] = montage_header[cdp] # insert the CDELTs and CROTA2
-    orig_header.tofile(out_file,sep='\n',endcard=True,padding=False,clobber=True)
+    orig_header.tofile(out_file,sep='\n',endcard=True,padding=False,overwrite=True)
     return
 
 def get_ref_wcs(img_name):
@@ -611,7 +503,7 @@ def register_images(images_with_headers):
                           "_converted.fits")
 
         # make the new header & merge it with old
-        montage.commands.mHdr(`lngref_input` + ' ' + `latref_input`, 
+        montage.commands.mHdr(str(lngref_input) + ' ' + str(latref_input), 
                               width_and_height, artificial_filename, 
                               system='eq', equinox=2000.0, 
                               height=width_and_height, 
@@ -671,7 +563,7 @@ def convolve_images(images_with_headers):
             # do the convolution and save as a new .fits file
             convolved_image = convolve_fft(science_image, kernel_image)
             hdu = fits.PrimaryHDU(convolved_image, science_header)
-            hdu.writeto(convolved_filename, clobber=True)
+            hdu.writeto(convolved_filename, overwrite=True)
 
         else: # no kernel
             native_pixelscale = get_pixel_scale(images_with_headers[i][1])
@@ -692,15 +584,18 @@ def convolve_images(images_with_headers):
             hdulist.close()
             # NOTETOSELF: not completely clear whether Gaussian2DKernel 'width' is sigma or FWHM
             # also, previous version had kernel being 3x3 pixels which seems pretty small!
-
+            # NOTE_FROM_RK: width is no longer a parameter from gaussian kernels 
+            # confirmed from the astropy repository posts, the parameter is sigma
+            
             # construct kernel
-            gaus_kernel_inp = Gaussian2DKernel(width=sigma_input)
+            # print("Constructing kernel : ", sigma_input)
+            gaus_kernel_inp = Gaussian2DKernel(sigma_input)
             # Do the convolution and save it as a new .fits file
             conv_result = convolve(image_data, gaus_kernel_inp)
             header['FWHM'] = (fwhm_input, 
                               'FWHM value used in convolution, in pixels')
             hdu = fits.PrimaryHDU(conv_result, header)
-            hdu.writeto(convolved_filename, clobber=True)
+            hdu.writeto(convolved_filename, overwrite=True)
     return
 
 
@@ -728,7 +623,7 @@ def resample_images(images_with_headers, logfile_name):
     lngref_input, latref_input, rotation_pa = get_ref_wcs(main_reference_image)
 
     # make the header for the resampled images (same for all)
-    montage.commands.mHdr(`lngref_input` + ' ' + `latref_input`, width_input, 
+    montage.commands.mHdr(str(lngref_input) + ' ' + str(latref_input), width_input, 
                           'grid_final_resample_header', system='eq', 
                           equinox=2000.0, height=height_input, 
                           pix_size=im_pixsc, rotation=rotation_pa)
@@ -770,7 +665,7 @@ def create_data_cube(images_with_headers, logfile_name):
     new_directory = image_directory + "/datacube/"
     if not os.path.exists(new_directory):
         os.makedirs(new_directory)
-
+    # print("In create data cube : ", len(images_with_headers))
     # put the image data into a list (not sure this is quite the right way to do it)
     resampled_images=[]
     for i in range(0, len(images_with_headers)):
@@ -797,10 +692,43 @@ def create_data_cube(images_with_headers, logfile_name):
 
     # now use the header and data to create a new fits file
     prihdu = fits.PrimaryHDU(header=prihdr, data=resampled_images)
-    hdulist = fits.HDUList([prihdu])
+    hdulist = fits.HDUList(prihdu)
     hdulist[0].add_datasum(when='Computed by imagecube')
     hdulist[0].add_checksum(when='Computed by imagecube',override_datasum=True)
-    hdulist.writeto(new_directory + '/' + 'datacube.fits',clobber=True)
+    hdulist.writeto(new_directory + '/' + 'datacube.fits',overwrite=True)
+
+
+    #if the 2D structure of the file is also to be created
+    if(make_2D):    
+        # make a new header with the WCS info
+        prihdr = new_wcs.to_header()
+        # put some other information in the header
+        prihdr['CREATOR'] = ('IMAGECUBE', 'Software used to create this file') # TODO: add version
+        prihdr['DATE'] = (datetime.now().strftime('%Y-%m-%d'), 'File creation date')
+        prihdr['LOGFILE'] = (logfile_name, 'imagecube log file') 
+        if do_conversion:
+            prihdr['BUNIT'] = ('Jy/pixel', 'Units of image data') 
+           
+
+        # now use this header to create a new fits file
+        # put the image data into a list (not sure this is quite the right way to do it)
+        prihdu = fits.PrimaryHDU(header=prihdr)
+        cube_hdulist = fits.HDUList([prihdu])
+
+        for i in range(0, len(images_with_headers)):
+            original_filename = os.path.basename(images_with_headers[i][2])
+            original_directory = os.path.dirname(images_with_headers[i][2])
+            resampled_filename = (original_directory + "/resampled/" + 
+                                  original_filename  + "_resampled.fits")
+
+
+            hdulist = fits.open(resampled_filename)
+            cube_hdulist.append(hdulist[0])
+            hdulist.close()
+
+
+        cube_hdulist.writeto(new_directory + '/' + 'datacube_2d.fits',clobber=True)
+
     return
 
 
@@ -879,8 +807,8 @@ def output_seds(images_with_headers):
             ax.set_yscale('log')
             ax.set_xlim(min(wavelength_values), max(wavelength_values)) #NOTETOSELF: doesn't quite seem to work
             ax.set_ylim(min(flux_values), max(flux_values))
-            fig.savefig(new_directory + '/' + `int(x_values[0])` + '_' + 
-                          `int(y_values[0])` + '_sed.eps')
+            fig.savefig(new_directory + '/' + str(int(x_values[0])) + '_' + 
+                          str(int(y_values[0])) + '_sed.eps')
             bar.update(i)
     return
 
@@ -912,6 +840,7 @@ def main(args=None):
     global kernel_directory
     global im_pixsc
     global rot_angle
+    global make_2D
     ang_size = ''
     image_directory = ''
     main_reference_image = ''
@@ -924,6 +853,8 @@ def main(args=None):
     do_cleanup = False
     kernel_directory = ''
     im_pixsc = ''
+
+    make_2D = False
 
     # note start time for log
     start_time = datetime.now()
@@ -966,10 +897,10 @@ def main(args=None):
     # if not just cleaning up, make a log file which records input parameters
     logfile_name = 'imagecube_'+ start_time.strftime('%Y-%m-%d_%H%M%S') + '.log'
     with log.log_to_file(logfile_name,filter_origin='imagecube.imagecube'):
-    	log.info('imagecube started at %s' % start_time.strftime('%Y-%m-%d_%H%M%S'))
-    	log.info('imagecube called with arguments %s' % arglist)
+        log.info('imagecube started at %s' % start_time.strftime('%Y-%m-%d_%H%M%S'))
+        log.info('imagecube called with arguments %s' % arglist)
 
-	# Grab all of the .fits and .fit files in the specified directory
+        # Grab all of the .fits and .fit files in the specified directory
         all_files = glob.glob(image_directory + "/*.fit*")
         # no use doing anything if there aren't any files!
         if len(all_files) == 0:
@@ -981,34 +912,35 @@ def main(args=None):
 	
         # get images
         for (i,fitsfile) in enumerate(all_files):
-	     hdulist = fits.open(fitsfile)
-	     img_extens = find_image_planes(hdulist)
-	     # NOTETOSELF: right now we are just using the *first* image extension in a file
-	     #             which is not what we want to do, ultimately.
-	     header = hdulist[img_extens[0]].header
-	     image = hdulist[img_extens[0]].data
-	     # Strip the .fit or .fits extension from the filename so we can append
-	     # things to it later on
-	     filename = os.path.splitext(hdulist.filename())[0]
-	     hdulist.close()
-	     # check to see if image has reasonable scale & orientation
-	     # NOTETOSELF: should this really be here? It's not relevant for just flux conversion.
-	     #             want separate loop over image planes, after finishing file loop
-	     pixelscale = get_pixel_scale(header)
-	     fov = pixelscale * float(header['NAXIS1'])
-	     log.info("Checking %s: is pixel scale (%.2f\") < ang_size (%.2f\") < FOV (%.2f\") ?"% (fitsfile,pixelscale, ang_size,fov))
-	     if (pixelscale < ang_size < fov):
-	         try:
-	             wavelength = header['WAVELNTH'] 
-	             header['WAVELNTH'] = (wavelength, 'micron') # add the unit if it's not already there
-	             image_data.append(image)
-	             headers.append(header)
-	             filenames.append(filename)
-	         except KeyError:
-	             warnings.warn('Image %s has no WAVELNTH keyword, will not be used' % filename, AstropyUserWarning)
-	     else:
-	         warnings.warn("Image %s does not meet the above criteria." % filename, AstropyUserWarning) 
-             # end of loop over files
+            hdulist = fits.open(fitsfile)
+            img_extens = find_image_planes(hdulist)
+            # NOTETOSELF: right now we are just using the *first* image extension in a file
+            #             which is not what we want to do, ultimately.
+            header = hdulist[img_extens[0]].header
+            image = hdulist[img_extens[0]].data
+            # Strip the .fit or .fits extension from the filename so we can append
+            # things to it later on
+            filename = os.path.splitext(hdulist.filename())[0]
+            hdulist.close()
+            # check to see if image has reasonable scale & orientation
+            # NOTETOSELF: should this really be here? It's not relevant for just flux conversion.
+            #             want separate loop over image planes, after finishing file loop
+            pixelscale = get_pixel_scale(header)
+            fov = pixelscale * float(header['NAXIS1'])
+            log.info("Checking %s: is pixel scale (%.2f\") < ang_size (%.2f\") < FOV (%.2f\") ?"% (fitsfile,pixelscale, ang_size,fov))
+            if (pixelscale < ang_size < fov):
+                try:
+                    # there seems to be a different name for wavelength in some images, look into it
+                    wavelength = header['WAVELNTH'] 
+                    header['WAVELNTH'] = (wavelength, 'micron') # add the unit if it's not already there
+                    image_data.append(image)
+                    headers.append(header)
+                    filenames.append(filename) 
+                except KeyError:
+                    warnings.warn('Image %s has no WAVELNTH keyword, will not be used' % filename, AstropyUserWarning)
+            else:
+                warnings.warn("Image %s does not meet the above criteria." % filename, AstropyUserWarning) 
+            # end of loop over files
 	
         # Sort the lists by their WAVELNTH value
         images_with_headers_unsorted = zip(image_data, headers, filenames)
@@ -1033,6 +965,10 @@ def main(args=None):
         # all done!
         log.info('All tasks completed.')
         if __name__ == '__main__':
-	    sys.exit()
+            sys.exit()
         else:
-	    return
+            return
+
+
+# this is just to test and see if the script is running fine, delete for the realease
+main()
