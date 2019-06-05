@@ -298,7 +298,7 @@ def get_conversion_factor(header, instrument):
     
     return conversion_factor
 
-def convert_images(images_with_headers):
+def convert_images(image_stack):
     """
     Converts all of the input images' native "flux units" to Jy/pixel
     The converted values are stored in the list of arrays, 
@@ -316,41 +316,42 @@ def convert_images(images_with_headers):
     if not os.path.exists(new_directory):
         os.makedirs(new_directory)
 
-    for i in range(0, len(images_with_headers)):
-        if ('FLSCALE' in images_with_headers[i][1]):
-            conversion_factor = float(images_with_headers[i][1]['FLSCALE'])
+    for i in range(1, len(image_stack)):
+        if ('FLSCALE' in image_stack[i].header):
+            conversion_factor = float(image_stack[i].header['FLSCALE'])
         else:
             try: # try to get conversion factor from image header
-                instrument = images_with_headers[i][1]['INSTRUME']
+                instrument = image_stack[i].header['INSTRUME']
                 conversion_factor = get_conversion_factor(
-                    images_with_headers[i][1], instrument)
+                    image_stack[i], instrument)
             except KeyError: # get this if no 'INSTRUME' keyword
                 conversion_factor = 0
             # if conversion_factor == 0 either we don't know the instrument
             # or we don't have a conversion factor for it.
             if conversion_factor == 0: 
                 warnings.warn("No conversion factor for image %s, using 1"\
-                     % images_with_headers[i][2],\
+                     % image_stack[i].header['FILENAME'],\
                     AstropyUserWarning)
                 conversion_factor = 1.0
 
         # Some manipulation of filenames and directories
-        original_filename = os.path.basename(images_with_headers[i][2])
-        original_directory = os.path.dirname(images_with_headers[i][2])
+        original_filename = os.path.basename(image_stack[i].header['FILENAME'])
+        original_directory = os.path.dirname(image_stack[i].header['FILENAME'])
         converted_filename = (new_directory + original_filename  + 
                               "_converted.fits")
 
         # Do a Jy/pixel unit conversion and save it as a new .fits file
-        converted_data_array = images_with_headers[i][0] * conversion_factor
+        converted_data_array = image_stack[i].data * conversion_factor
         converted_data.append(converted_data_array)
-        images_with_headers[i][1]['BUNIT'] = 'Jy/pixel'
-        images_with_headers[i][1]['JYPXFACT'] = (
+        image_stack[i].header['BUNIT'] = 'Jy/pixel'
+        image_stack[i].header['JYPXFACT'] = (
             conversion_factor, 'Factor to'
             + ' convert original BUNIT into Jy/pixel.'
         )
-        hdu = fits.PrimaryHDU(converted_data_array, images_with_headers[i][1])
+        image_stack[i].data = image_stack[i].data * conversion_factor
+        hdu = fits.PrimaryHDU(converted_data_array, image_stack[i].header)
         hdu.writeto(converted_filename, overwrite=True)
-    return
+    return image_stack
 
 #modified from aplpy.wcs_util.get_pixel_scales
 def get_pixel_scale(header):
@@ -886,13 +887,22 @@ def main(args=None):
     global resampled_data
     global headers
     global filenames
-    image_data = []
+    
     converted_data = []
     registered_data = []
     convolved_data = []
     resampled_data = []
-    headers = []
     filenames = []
+    image_data=[]
+    headers = []
+    
+    hdus = []
+
+    hdr = fits.Header()
+    hdr['COMMENT'] = "Image stack created to form the data cube"
+    hdr['WAVELNTH'] = 0
+    primary_hdu = fits.PrimaryHDU(header=hdr)
+    hdus.append(primary_hdu)
 
     # if not just cleaning up, make a log file which records input parameters
     logfile_name = 'imagecube_'+ start_time.strftime('%Y-%m-%d_%H%M%S') + '.log'
@@ -933,41 +943,48 @@ def main(args=None):
                     # there seems to be a different name for wavelength in some images, look into it
                     wavelength = header['WAVELNTH'] 
                     header['WAVELNTH'] = (wavelength, 'micron') # add the unit if it's not already there
-                    image_data.append(image)
-                    headers.append(header)
-                    filenames.append(filename) 
+                    header['FILENAME'] = fitsfile
+                    # image_data.append(image)
+                    # headers.append(header)
+                    # filenames.append(filename)
+                    a = fits.ImageHDU(header=header, data=image)
+                    hdus.append(a) 
                 except KeyError:
                     warnings.warn('Image %s has no WAVELNTH keyword, will not be used' % filename, AstropyUserWarning)
             else:
                 warnings.warn("Image %s does not meet the above criteria." % filename, AstropyUserWarning) 
             # end of loop over files
-	
-        # Sort the lists by their WAVELNTH value
-        images_with_headers_unsorted = zip(image_data, headers, filenames)
-        images_with_headers = sorted(images_with_headers_unsorted, 
-	                             key=lambda header: header[1]['WAVELNTH'])
-	
+
+        # # Sort the lists by their WAVELNTH value
+        # images_with_headers_unsorted = zip(image_data, headers, filenames)
+        # images_with_headers = sorted(images_with_headers_unsorted, 
+	       #                       key=lambda header: header[1]['WAVELNTH'])
+
+        hdus.sort(key=lambda x: x.header['WAVELNTH'])
+        image_stack = fits.HDUList(hdus)
+
+
         if (do_conversion):
-            convert_images(images_with_headers)
+            image_stack = convert_images(image_stack)
 	
         if (do_registration):
             register_images(images_with_headers)
 	
-        if (do_convolution):
-            convolve_images(images_with_headers)
+        # if (do_convolution):
+        #     convolve_images(images_with_headers)
 	
-        if (do_resampling):
-            resample_images(images_with_headers, logfile_name)
+        # if (do_resampling):
+        #     resample_images(images_with_headers, logfile_name)
 	
-        if (do_seds):
-            output_seds(images_with_headers)
+        # if (do_seds):
+        #     output_seds(images_with_headers)
             
-        # all done!
-        log.info('All tasks completed.')
-        if __name__ == '__main__':
-            sys.exit()
-        else:
-            return
+        # # all done!
+        # log.info('All tasks completed.')
+        # if __name__ == '__main__':
+        #     sys.exit()
+        # else:
+        #     return
 
 
 # this is just to test and see if the script is running fine, delete for the realease
