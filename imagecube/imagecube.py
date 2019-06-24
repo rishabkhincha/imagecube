@@ -26,7 +26,7 @@ from astropy import units as u
 from astropy import constants
 from astropy.io import fits
 from astropy import wcs
-from astropy.convolution import convolve, convolve_fft, Gaussian2DKernel
+from astropy.convolution import convolve, convolve_fft, Gaussian2DKernel, interpolate_replace_nans
 from astropy import log
 from astropy.utils.exceptions import AstropyUserWarning
 import astropy.utils.console as console
@@ -415,7 +415,7 @@ def merge_headers(montage_hfile, orig_header, out_file):
         for cdp in ['CDELT1','CDELT2','CROTA2']: 
             orig_header[cdp] = montage_header[cdp] # insert the CDELTs and CROTA2
     orig_header.tofile(out_file,sep='\n',endcard=True,padding=False,overwrite=True)
-    return
+    return orig_header
 
 def get_ref_wcs(img_name):
     '''
@@ -468,7 +468,7 @@ def find_image_planes(hdulist):
     return(img_plns)
 
 
-def register_images(images_with_headers):
+def register_images(image_stack):
     """
     Registers all of the images to a common WCS
 
@@ -489,12 +489,12 @@ def register_images(images_with_headers):
     width_and_height = u.arcsec.to(u.deg, ang_size)
 
     # now loop over all the images
-    for i in range(0, len(images_with_headers)):
+    for i in range(1, len(image_stack)):
 
-        native_pixelscale = get_pixel_scale(images_with_headers[i][1])
+        native_pixelscale = get_pixel_scale(image_stack[i].header)
 
-        original_filename = os.path.basename(images_with_headers[i][2])
-        original_directory = os.path.dirname(images_with_headers[i][2])
+        original_filename = os.path.basename(image_stack[i].header['FILENAME'])
+        original_directory = os.path.dirname(image_stack[i].header['FILENAME'])
         artificial_filename = (new_directory + original_filename + 
                                "_pixelgrid_header")
         registered_filename = (new_directory + original_filename  + 
@@ -502,22 +502,27 @@ def register_images(images_with_headers):
         input_directory = original_directory + "/converted/"
         input_filename = (input_directory + original_filename  + 
                           "_converted.fits")
-
+        
         # make the new header & merge it with old
         montage.commands.mHdr(str(lngref_input) + ' ' + str(latref_input), 
                               width_and_height, artificial_filename, 
                               system='eq', equinox=2000.0, 
                               height=width_and_height, 
                               pix_size=native_pixelscale, rotation=rotation_pa)
-        merge_headers(artificial_filename, images_with_headers[i][1], artificial_filename)
+        image_stack[i].header = merge_headers(artificial_filename, image_stack[i].header, artificial_filename)
+        
+
         # reproject using montage
         montage.wrappers.reproject(input_filename, registered_filename, 
                                    header=artificial_filename, exact_size=True)  
         # delete the file with header info
         os.unlink(artificial_filename)
-    return
+        image_stack[i].header = fits.open(registered_filename)[0].header
+        image_stack[i].data = fits.open(registered_filename)[0].data
 
-def convolve_images(images_with_headers):
+    return image_stack
+
+def convolve_images(image_stack):
     """
     Convolves all of the images to a common resolution using a simple
     gaussian kernel.
@@ -534,9 +539,9 @@ def convolve_images(images_with_headers):
     if not os.path.exists(new_directory):
         os.makedirs(new_directory)
 
-    for i in range(0, len(images_with_headers)):
-        original_filename = os.path.basename(images_with_headers[i][2])
-        original_directory = os.path.dirname(images_with_headers[i][2])
+    for i in range(1, len(image_stack)):
+        original_filename = os.path.basename(image_stack[i].header['FILENAME'])
+        original_directory = os.path.dirname(image_stack[i].header['FILENAME'])
         convolved_filename = (new_directory + original_filename  + 
                               "_convolved.fits")
         input_directory = original_directory + "/registered/"
@@ -553,21 +558,24 @@ def convolve_images(images_with_headers):
         if os.path.exists(kernel_filename):
             log.info("Found a kernel; will convolve with it shortly.")
             #reading the science image
-            science_hdulist = fits.open(input_filename)
-            science_header = science_hdulist[0].header
-            science_image = science_hdulist[0].data
-            science_hdulist.close()
+            science_hdulist = image_stack[i]
+            science_header = science_hdulist.header
+            science_image = science_hdulist.data
             # reading the kernel
             kernel_hdulist = fits.open(kernel_filename)
             kernel_image = kernel_hdulist[0].data
             kernel_hdulist.close()
             # do the convolution and save as a new .fits file
+            # print("Convolving...")
             convolved_image = convolve_fft(science_image, kernel_image)
+            # print("Convolved...")
             hdu = fits.PrimaryHDU(convolved_image, science_header)
             hdu.writeto(convolved_filename, overwrite=True)
-
+            image_stack[i].data = convolved_image
         else: # no kernel
-            native_pixelscale = get_pixel_scale(images_with_headers[i][1])
+            # print("No file..")
+            native_pixelscale = get_pixel_scale(image_stack[i].header)
+            # print(native_pixelscale)
             sigma_input = (fwhm_input / 
                            (2* math.sqrt(2*math.log (2) ) * native_pixelscale))
 
@@ -579,28 +587,33 @@ def convolve_images(images_with_headers):
             # NOTE_FROM_PB: can possibly solve this issue, and eliminate a lot 
             # of repetitive code, by making a multi-extension FITS file
             # in the initial step, and iterating over the extensions in that file
-            hdulist = fits.open(input_filename)
-            header = hdulist[0].header
-            image_data = hdulist[0].data
-            hdulist.close()
+            hdulist = image_stack[i]
+            header = hdulist.header
+            image_data = hdulist.data
             # NOTETOSELF: not completely clear whether Gaussian2DKernel 'width' is sigma or FWHM
             # also, previous version had kernel being 3x3 pixels which seems pretty small!
             # NOTE_FROM_RK: width is no longer a parameter from gaussian kernels 
             # confirmed from the astropy repository posts, the parameter is sigma
             
             # construct kernel
-            # print("Constructing kernel : ", sigma_input)
             gaus_kernel_inp = Gaussian2DKernel(sigma_input)
+            
             # Do the convolution and save it as a new .fits file
-            conv_result = convolve(image_data, gaus_kernel_inp)
+            interpreted_result = interpolate_replace_nans(image_data, gaus_kernel_inp)
+            conv_result = convolve(interpreted_result, gaus_kernel_inp)
+
+            # conv_result = convolve(image_data, gaus_kernel_inp)
+           
             header['FWHM'] = (fwhm_input, 
                               'FWHM value used in convolution, in pixels')
             hdu = fits.PrimaryHDU(conv_result, header)
             hdu.writeto(convolved_filename, overwrite=True)
-    return
+            image_stack[i].header = header
+            image_stack[i].data = conv_result
+    return image_stack
 
 
-def resample_images(images_with_headers, logfile_name):
+def resample_images(image_stack, logfile_name):
     """
     Resamples all of the images to a common pixel grid.
 
@@ -629,9 +642,9 @@ def resample_images(images_with_headers, logfile_name):
                           equinox=2000.0, height=height_input, 
                           pix_size=im_pixsc, rotation=rotation_pa)
 
-    for i in range(0, len(images_with_headers)):
-        original_filename = os.path.basename(images_with_headers[i][2])
-        original_directory = os.path.dirname(images_with_headers[i][2])
+    for i in range(1, len(image_stack)):
+        original_filename = os.path.basename(image_stack[i].header['FILENAME'])
+        original_directory = os.path.dirname(image_stack[i].header['FILENAME'])
         artificial_header = (new_directory + original_filename + 
                                "_artheader")
         resampled_filename = (new_directory + original_filename  + 
@@ -640,18 +653,21 @@ def resample_images(images_with_headers, logfile_name):
         input_filename = (input_directory + original_filename  + 
                           "_convolved.fits")
         # generate header for regridded image
-        merge_headers('grid_final_resample_header', images_with_headers[i][1],artificial_header)
+        merge_headers('grid_final_resample_header', image_stack[i].header,artificial_header)
         # do the regrid
         montage.wrappers.reproject(input_filename, resampled_filename, 
             header=artificial_header)  
         # delete the header file
         os.unlink(artificial_header)
+        # print(fits.open(resampled_filename).info())
+        image_stack[i].header = fits.open(resampled_filename)[0].header
+        image_stack[i].data = fits.open(resampled_filename)[0].data
 
     os.unlink('grid_final_resample_header')
-    create_data_cube(images_with_headers, logfile_name)
-    return
+    image_stack = create_data_cube(image_stack, logfile_name)
+    return image_stack
 
-def create_data_cube(images_with_headers, logfile_name):
+def create_data_cube(image_stack, logfile_name):
     """
     Creates a data cube from the provided images.
 
@@ -669,19 +685,20 @@ def create_data_cube(images_with_headers, logfile_name):
     # print("In create data cube : ", len(images_with_headers))
     # put the image data into a list (not sure this is quite the right way to do it)
     resampled_images=[]
-    for i in range(0, len(images_with_headers)):
-        original_filename = os.path.basename(images_with_headers[i][2])
-        original_directory = os.path.dirname(images_with_headers[i][2])
+    for i in range(1, len(image_stack)):
+        original_filename = os.path.basename(image_stack[i].header['FILENAME'])
+        original_directory = os.path.dirname(image_stack[i].header['FILENAME'])
         resampled_filename = (original_directory + "/resampled/" + 
                               original_filename  + "_resampled.fits")
-        
-        hdulist = fits.open(resampled_filename)
-        image = hdulist[0].data
+        hdulist = image_stack[i]
+        image = hdulist.data
         resampled_images.append(image)
-        if i == 0:     # grab the WCS info from the first input image
-            new_wcs = wcs.WCS(hdulist[0].header)
-        hdulist.close()
-
+        if i == 1:     # grab the WCS info from the first input image
+            new_wcs = wcs.WCS(hdulist.header)
+        # hdulist.close()
+        # hdulist_test = [image_stack[i]]
+        # assert hdulist_test[0].header == hdulist[0].header 
+        
     # make a new header with the WCS info
     prihdr = new_wcs.to_header()
     # put some other information in the header
@@ -691,11 +708,13 @@ def create_data_cube(images_with_headers, logfile_name):
     if do_conversion:
         prihdr['BUNIT'] = ('Jy/pixel', 'Units of image data')
 
+
+    # print(len(resampled_images))
     # now use the header and data to create a new fits file
     prihdu = fits.PrimaryHDU(header=prihdr, data=resampled_images)
     hdulist = fits.HDUList(prihdu)
-    hdulist[0].add_datasum(when='Computed by imagecube')
-    hdulist[0].add_checksum(when='Computed by imagecube',override_datasum=True)
+    # hdulist.add_datasum(when='Computed by imagecube')
+    # hdulist.add_checksum(when='Computed by imagecube',override_datasum=True)
     hdulist.writeto(new_directory + '/' + 'datacube.fits',overwrite=True)
 
 
@@ -716,21 +735,21 @@ def create_data_cube(images_with_headers, logfile_name):
         prihdu = fits.PrimaryHDU(header=prihdr)
         cube_hdulist = fits.HDUList([prihdu])
 
-        for i in range(0, len(images_with_headers)):
-            original_filename = os.path.basename(images_with_headers[i][2])
-            original_directory = os.path.dirname(images_with_headers[i][2])
+        for i in range(1, len(image_stack)):
+            original_filename = os.path.basename(image_stack[i].header['FILENAME'])
+            original_directory = os.path.dirname(image_stack[i].header['FILENAME'])
             resampled_filename = (original_directory + "/resampled/" + 
                                   original_filename  + "_resampled.fits")
 
 
-            hdulist = fits.open(resampled_filename)
-            cube_hdulist.append(hdulist[0])
-            hdulist.close()
+            hdulist = image_stack[i]
+            cube_hdulist.append(hdulist)
+            # hdulist.close()
 
+        print(repr(cube_hdulist.info()))
+        cube_hdulist.writeto(new_directory + '/' + 'datacube_2d.fits',overwrite=True, output_verify='ignore')
 
-        cube_hdulist.writeto(new_directory + '/' + 'datacube_2d.fits',clobber=True)
-
-    return
+    return image_stack
 
 
 def output_seds(images_with_headers):
@@ -801,7 +820,7 @@ def output_seds(images_with_headers):
             fig, ax = plt.subplots()
             ax.scatter(wavelength_values,flux_values)
             # axes specific
-            ax.set_xlabel(r'Wavelength ($\mu$m)')					
+            ax.set_xlabel(r'Wavelength ($\mu$m)')                   
             ax.set_ylabel(r'Flux density (Jy/pixel)')
             rc('axes', labelsize=14, linewidth=2, labelcolor='black')
             ax.set_xscale('log')
@@ -919,7 +938,7 @@ def main(args=None):
                 sys.exit()
             else:
                 return
-	
+    
         # get images
         for (i,fitsfile) in enumerate(all_files):
             hdulist = fits.open(fitsfile)
@@ -958,7 +977,7 @@ def main(args=None):
         # # Sort the lists by their WAVELNTH value
         # images_with_headers_unsorted = zip(image_data, headers, filenames)
         # images_with_headers = sorted(images_with_headers_unsorted, 
-	       #                       key=lambda header: header[1]['WAVELNTH'])
+           #                       key=lambda header: header[1]['WAVELNTH'])
 
         hdus.sort(key=lambda x: x.header['WAVELNTH'])
         image_stack = fits.HDUList(hdus)
@@ -966,25 +985,27 @@ def main(args=None):
 
         if (do_conversion):
             image_stack = convert_images(image_stack)
-	
+
         if (do_registration):
-            register_images(images_with_headers)
-	
-        # if (do_convolution):
-        #     convolve_images(images_with_headers)
-	
-        # if (do_resampling):
-        #     resample_images(images_with_headers, logfile_name)
-	
+            image_stack = register_images(image_stack)
+    
+        if (do_convolution):
+            image_stack = convolve_images(image_stack)
+    
+        
+
+        if (do_resampling):
+            image_stack = resample_images(image_stack, logfile_name)
+    
         # if (do_seds):
         #     output_seds(images_with_headers)
             
-        # # all done!
-        # log.info('All tasks completed.')
-        # if __name__ == '__main__':
-        #     sys.exit()
-        # else:
-        #     return
+        # all done!
+        log.info('All tasks completed.')
+        if __name__ == '__main__':
+            sys.exit()
+        else:
+            return
 
 
 # this is just to test and see if the script is running fine, delete for the realease
