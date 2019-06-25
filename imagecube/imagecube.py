@@ -885,6 +885,9 @@ def main(args=None):
         else:
             return
 
+    # NOTE_FROM_RK : A lot of these contants seem redundant and unused, need to figure out exactly  
+    #                which ones are used and remove the rest
+
     # Lists to store information
     global image_data
     global converted_data
@@ -989,7 +992,7 @@ def main(args=None):
             image_stack = resample_images(image_stack, logfile_name)
     
         # TODO : update the seds function to work with image_stack
-        
+
         # if (do_seds):
         #     output_seds(images_with_headers)
             
