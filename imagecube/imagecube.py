@@ -739,7 +739,7 @@ def create_data_cube(image_stack, logfile_name):
     return image_stack
 
 
-def output_seds(images_with_headers):
+def output_seds(image_stack):
     """
     Makes the SEDs.
 
@@ -758,31 +758,33 @@ def output_seds(images_with_headers):
     all_image_data = []
     wavelengths = []
 
-    num_wavelengths = len(images_with_headers)
-
-    for i in range(0, num_wavelengths):
-        original_filename = os.path.basename(images_with_headers[i][2])
-        original_directory = os.path.dirname(images_with_headers[i][2])
+    num_wavelengths = len(image_stack)
+    # print("In seds")
+    # print("num_wavelenghts : ", num_wavelengths)
+    for i in range(1, num_wavelengths):
+        original_filename = os.path.basename(image_stack[i].header['FILENAME'])
+        original_directory = os.path.dirname(image_stack[i].header['FILENAME'])
         input_directory = original_directory + "/resampled/"
         input_filename = (input_directory + original_filename  + 
                           "_resampled.fits")
-        wavelength = images_with_headers[i][1]['WAVELNTH']
+        wavelength = image_stack[i].header['WAVELNTH']
         wavelengths.append(wavelength)
 
         # Load the data for each image and append it to a master list of
         # all image data.
         ##NOTETOSELF: change to use nddata structure?
-        hdulist = fits.open(input_filename)
-        image_data = hdulist[0].data
+        hdulist = image_stack[i]
+        image_data = hdulist.data
         all_image_data.append(image_data)
-        hdulist.close()
-
+    print(len(all_image_data))
     sed_data = []
-    for i in range(0, num_wavelengths):
+    for i in range(0, num_wavelengths-1):
+        print(i, "on")
         for j in range(len(all_image_data[i])):
             for k in range(len(all_image_data[i][j])):
                 sed_data.append((int(j), int(k), wavelengths[i], 
                                 all_image_data[i][j][k]))
+        print(i, "done")
 
     # write the SED data to a test file
     # NOTETOSELF: make this optional?
@@ -985,16 +987,12 @@ def main(args=None):
     
         if (do_convolution):
             image_stack = convolve_images(image_stack)
-    
-        
 
         if (do_resampling):
             image_stack = resample_images(image_stack, logfile_name)
-    
-        # TODO : update the seds function to work with image_stack
 
-        # if (do_seds):
-        #     output_seds(images_with_headers)
+        if (do_seds):
+            output_seds(image_stack)
             
         # all done!
         log.info('All tasks completed.')
