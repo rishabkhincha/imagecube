@@ -500,7 +500,7 @@ def register_images(image_stack):
         registered_filename = (new_directory + original_filename  + 
                                "_registered.fits")
         
-        # TODO : create a dummy file with image_satck[i] instead of looking for the converted file
+        # TODO : create a dummy file with image_stack[i] instead of looking for the converted file
         #        to reproject the file
         input_directory = original_directory + "/converted/"
         input_filename = (input_directory + original_filename  + 
