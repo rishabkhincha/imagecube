@@ -551,8 +551,11 @@ def convolve_images(image_stack):
         # Check if there is a corresponding PSF kernel.
         # If so, then use that to perform the convolution.
         # Otherwise, convolve with a Gaussian kernel.
+        
         kernel_filename = (original_directory + "/" + kernel_directory + "/" + 
                            original_filename + "_kernel.fits")
+
+        
         log.info("Looking for " + kernel_filename)
 
         if os.path.exists(kernel_filename):
@@ -745,7 +748,7 @@ def output_seds(image_stack):
 
     Parameters
     ----------
-    images_with_headers: zipped list structure
+    image_stack: HDU list
         A structure containing headers and image data for all FITS input
         images.
 
@@ -978,6 +981,14 @@ def main(args=None):
         #             need to be processed by IMAGECUBE
 
         image_stack = fits.HDUList(hdus)
+
+
+        # At this step, create a kernel stack as well.
+        # It should consist of the 5 kernels that need to be used to convolve.
+        # Generate the kernel filename by picking up the instruments for each image and the wavelength
+        # Further, before convolving each image from this kernel_stack with images from the image_stack
+        # Resample them so that the angular resolutions match  -- DOUBT        
+
 
         if (do_conversion):
             image_stack = convert_images(image_stack)
