@@ -488,6 +488,7 @@ def register_images(image_stack):
     lngref_input, latref_input, rotation_pa = get_ref_wcs(main_reference_image)
     width_and_height = u.arcsec.to(u.deg, ang_size)
 
+    # temporary directory to store the file from image_stack so that reproject function works
     tmp_directory = image_directory + "/temp/"
     os.mkdir(tmp_directory)
 
@@ -503,9 +504,7 @@ def register_images(image_stack):
         registered_filename = (new_directory + original_filename  + 
                                "_registered.fits")
         
-        # TODO : create a dummy file with image_stack[i] instead of looking for the converted file
-        #        to reproject the file
-
+        # temporary file created from image_stack 
         tmp_filename = (tmp_directory + original_filename )
 
         hdulist = fits.HDUList()
@@ -528,10 +527,12 @@ def register_images(image_stack):
                                    header=artificial_filename, exact_size=True)  
         # delete the file with header info
         os.unlink(artificial_filename)
+        # delete the temporary file made 
         os.unlink(tmp_filename)
         image_stack[i].header = fits.open(registered_filename)[0].header
         image_stack[i].data = fits.open(registered_filename)[0].data
 
+    # remove the tmeporary directory created
     os.rmdir(tmp_directory)
 
     return image_stack
@@ -652,6 +653,7 @@ def resample_images(image_stack, logfile_name):
                           equinox=2000.0, height=height_input, 
                           pix_size=im_pixsc, rotation=rotation_pa)
 
+    # temporary directory to store the file from image_stack so that reproject function works
     tmp_directory = image_directory + "/temp/"
     os.mkdir(tmp_directory)
 
@@ -663,7 +665,7 @@ def resample_images(image_stack, logfile_name):
         resampled_filename = (new_directory + original_filename  + 
                               "_resampled.fits")
         
-
+        # temporary file created from image_stack
         tmp_filename = (tmp_directory + original_filename )
 
         hdulist = fits.HDUList()
@@ -672,9 +674,6 @@ def resample_images(image_stack, logfile_name):
         hdulist.append(fits.PrimaryHDU(header=hdu_header, data=hdu_data))
         hdulist.writeto(tmp_filename, overwrite=True, output_verify='ignore')
 
-
-        # TODO : create a dummy file with image_stack[i] as input_filename to reproject
-
         # generate header for regridded image
         merge_headers('grid_final_resample_header', image_stack[i].header,artificial_header)
         # do the regrid
@@ -682,12 +681,13 @@ def resample_images(image_stack, logfile_name):
             header=artificial_header)  
         # delete the header file
         os.unlink(artificial_header)
+        # remove the tmeporary file created
         os.unlink(tmp_filename)
-        # print(fits.open(resampled_filename).info())
         image_stack[i].header = fits.open(resampled_filename)[0].header
         image_stack[i].data = fits.open(resampled_filename)[0].data
 
     os.unlink('grid_final_resample_header')
+    # remove the tmeporary directory created
     os.rmdir(tmp_directory)
     image_stack = create_data_cube(image_stack, logfile_name)
     return image_stack
