@@ -659,7 +659,6 @@ def resample_images(image_stack, logfile_name):
 
     for i in range(1, len(image_stack)):
         original_filename = os.path.basename(image_stack[i].header['FILENAME'])
-        original_directory = os.path.dirname(image_stack[i].header['FILENAME'])
         artificial_header = (new_directory + original_filename + 
                                "_artheader")
         resampled_filename = (new_directory + original_filename  + 
@@ -707,7 +706,7 @@ def create_data_cube(image_stack, logfile_name):
     new_directory = image_directory + "/datacube/"
     if not os.path.exists(new_directory):
         os.makedirs(new_directory)
-    # print("In create data cube : ", len(images_with_headers))
+
     # put the image data into a list (not sure this is quite the right way to do it)
     resampled_images=[]
     for i in range(1, len(image_stack)):
