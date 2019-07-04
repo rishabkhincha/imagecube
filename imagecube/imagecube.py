@@ -488,6 +488,9 @@ def register_images(image_stack):
     lngref_input, latref_input, rotation_pa = get_ref_wcs(main_reference_image)
     width_and_height = u.arcsec.to(u.deg, ang_size)
 
+    tmp_directory = image_directory + "/temp/"
+    os.mkdir(tmp_directory)
+
     # now loop over all the images
     for i in range(1, len(image_stack)):
 
@@ -502,10 +505,15 @@ def register_images(image_stack):
         
         # TODO : create a dummy file with image_stack[i] instead of looking for the converted file
         #        to reproject the file
-        input_directory = original_directory + "/converted/"
-        input_filename = (input_directory + original_filename  + 
-                          "_converted.fits")
-        
+
+        tmp_filename = (tmp_directory + original_filename )
+
+        hdulist = fits.HDUList()
+        hdu_header = image_stack[i].header
+        hdu_data = image_stack[i].data
+        hdulist.append(fits.PrimaryHDU(header=hdu_header, data=hdu_data))
+        hdulist.writeto(tmp_filename, overwrite=True, output_verify='ignore')
+
         # make the new header & merge it with old
         montage.commands.mHdr(str(lngref_input) + ' ' + str(latref_input), 
                               width_and_height, artificial_filename, 
@@ -516,12 +524,15 @@ def register_images(image_stack):
         
 
         # reproject using montage
-        montage.wrappers.reproject(input_filename, registered_filename, 
+        montage.wrappers.reproject(tmp_filename, registered_filename, 
                                    header=artificial_filename, exact_size=True)  
         # delete the file with header info
         os.unlink(artificial_filename)
+        os.unlink(tmp_filename)
         image_stack[i].header = fits.open(registered_filename)[0].header
         image_stack[i].data = fits.open(registered_filename)[0].data
+
+    os.rmdir(tmp_directory)
 
     return image_stack
 
@@ -555,7 +566,7 @@ def convolve_images(image_stack):
         kernel_filename = (original_directory + "/" + kernel_directory + "/" + 
                            original_filename + "_kernel.fits")
 
-        
+
         log.info("Looking for " + kernel_filename)
 
         if os.path.exists(kernel_filename):
@@ -641,6 +652,9 @@ def resample_images(image_stack, logfile_name):
                           equinox=2000.0, height=height_input, 
                           pix_size=im_pixsc, rotation=rotation_pa)
 
+    tmp_directory = image_directory + "/temp/"
+    os.mkdir(tmp_directory)
+
     for i in range(1, len(image_stack)):
         original_filename = os.path.basename(image_stack[i].header['FILENAME'])
         original_directory = os.path.dirname(image_stack[i].header['FILENAME'])
@@ -649,22 +663,32 @@ def resample_images(image_stack, logfile_name):
         resampled_filename = (new_directory + original_filename  + 
                               "_resampled.fits")
         
+
+        tmp_filename = (tmp_directory + original_filename )
+
+        hdulist = fits.HDUList()
+        hdu_header = image_stack[i].header
+        hdu_data = image_stack[i].data
+        hdulist.append(fits.PrimaryHDU(header=hdu_header, data=hdu_data))
+        hdulist.writeto(tmp_filename, overwrite=True, output_verify='ignore')
+
+
         # TODO : create a dummy file with image_stack[i] as input_filename to reproject
-        input_directory = original_directory + "/convolved/"
-        input_filename = (input_directory + original_filename  + 
-                          "_convolved.fits")
+
         # generate header for regridded image
         merge_headers('grid_final_resample_header', image_stack[i].header,artificial_header)
         # do the regrid
-        montage.wrappers.reproject(input_filename, resampled_filename, 
+        montage.wrappers.reproject(tmp_filename, resampled_filename, 
             header=artificial_header)  
         # delete the header file
         os.unlink(artificial_header)
+        os.unlink(tmp_filename)
         # print(fits.open(resampled_filename).info())
         image_stack[i].header = fits.open(resampled_filename)[0].header
         image_stack[i].data = fits.open(resampled_filename)[0].data
 
     os.unlink('grid_final_resample_header')
+    os.rmdir(tmp_directory)
     image_stack = create_data_cube(image_stack, logfile_name)
     return image_stack
 
@@ -987,8 +1011,8 @@ def main(args=None):
         # It should consist of the 5 kernels that need to be used to convolve.
         # Generate the kernel filename by picking up the instruments for each image and the wavelength
         # Further, before convolving each image from this kernel_stack with images from the image_stack
-        # Resample them so that the angular resolutions match  -- DOUBT        
-
+        # Resample them so that the pixel scale match  -- DOUBT
+        # Pixel scale of kernel should match with that of the image pixel scale        
 
         if (do_conversion):
             image_stack = convert_images(image_stack)
