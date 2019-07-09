@@ -539,7 +539,7 @@ def register_images(image_stack):
 
     return image_stack
 
-def convolve_images(image_stack):
+def convolve_images(image_stack, kernel_stack):
     """
     Convolves all of the images to a common resolution using a simple
     gaussian kernel.
@@ -561,10 +561,6 @@ def convolve_images(image_stack):
         original_directory = os.path.dirname(image_stack[i].header['FILENAME'])
         convolved_filename = (new_directory + original_filename  + 
                               "_convolved.fits")
-
-        # Check if there is a corresponding PSF kernel.
-        # If so, then use that to perform the convolution.
-        # Otherwise, convolve with a Gaussian kernel.
         
         kernel_filename = (original_directory + "/" + kernel_directory + "/" + 
                            original_filename + "_kernel.fits")
@@ -573,24 +569,14 @@ def convolve_images(image_stack):
         log.info("Looking for " + kernel_filename)
 
         if os.path.exists(kernel_filename):
-            log.info("Found a kernel; will convolve with it shortly.")
-            #reading the science image
-            science_hdulist = image_stack[i]
-            science_header = science_hdulist.header
-            science_image = science_hdulist.data
-            # reading the kernel
-            kernel_hdulist = fits.open(kernel_filename)
-            kernel_image = kernel_hdulist[0].data
-            kernel_hdulist.close()
-            # do the convolution and save as a new .fits file
-            convolved_image = convolve_fft(science_image, kernel_image)
-            hdu = fits.PrimaryHDU(convolved_image, science_header)
+            log.info("Found a kernel")
+            
+            convolved_image = convolve_fft(image_stack[i].data, kernel_stack[i])
+            hdu = fits.PrimaryHDU(convolved_image, image_stack[i].header)
             hdu.writeto(convolved_filename, overwrite=True)
             image_stack[i].data = convolved_image
+
         else: # no kernel
-            native_pixelscale = get_pixel_scale(image_stack[i].header)
-            sigma_input = (fwhm_input / 
-                           (2* math.sqrt(2*math.log (2) ) * native_pixelscale))
 
             # NOTETOSELF: there has been a loss of data from the data cubes at
             # an earlier step. The presence of 'EXTEND' and 'DSETS___' keywords
@@ -600,25 +586,26 @@ def convolve_images(image_stack):
             # NOTE_FROM_PB: can possibly solve this issue, and eliminate a lot 
             # of repetitive code, by making a multi-extension FITS file
             # in the initial step, and iterating over the extensions in that file
+            
             hdulist = image_stack[i]
             header = hdulist.header
             image_data = hdulist.data
+            
             # NOTETOSELF: not completely clear whether Gaussian2DKernel 'width' is sigma or FWHM
             # also, previous version had kernel being 3x3 pixels which seems pretty small!
             # NOTE_FROM_RK: width is no longer a parameter from gaussian kernels 
             # confirmed from the astropy repository posts, the parameter is sigma
             
-            # construct kernel
-            gaus_kernel_inp = Gaussian2DKernel(sigma_input)
-            
             # Do the convolution and save it as a new .fits file
-            interpreted_result = interpolate_replace_nans(image_data, gaus_kernel_inp)
-            conv_result = convolve(interpreted_result, gaus_kernel_inp)
+            # interpreted_result = interpolate_replace_nans(image_data, kernel_stack[i])
+            # conv_result = convolve_fft(interpreted_result, kernel_stack[i])
 
-            # conv_result = convolve(image_data, gaus_kernel_inp)
-           
+            if(kernel_stack[i].shape[0]>image_data.shape[0]):
+                conv_result = convolve_fft(image_data, kernel_stack[i])
+            else:
+                conv_result = convolve_fft(image_data, kernel_stack[i])
             header['FWHM'] = (fwhm_input, 
-                              'FWHM value used in convolution, in pixels')
+                              'FWHM value used for Gaussian convolution, in pixels')
             hdu = fits.PrimaryHDU(conv_result, header)
             hdu.writeto(convolved_filename, overwrite=True)
             image_stack[i].header = header
@@ -1095,7 +1082,7 @@ def main(args=None):
                 if(fr_instr=='MIPS'):
                     fr_wavelnth = math.ceil(fr_wavelnth)
 
-                url = url0 + str(fr_instr) + "__" + str(fr_wavelnth) + "_to_" + str(to_instr) + "_" + str(to_wavelnth) + ".fits.gz"
+                url = url0 + str(fr_instr) + "_" + str(fr_wavelnth) + "_to_" + str(to_instr) + "_" + str(to_wavelnth) + ".fits.gz"
 
                 filename = url.split("/")[-1]
 
@@ -1111,9 +1098,6 @@ def main(args=None):
                         resampled_kernel = resample_kernel(filename.split('.gz')[0], image_stack[i].header['FILENAME'])
                         kernels.append(resampled_kernel)
 
-
-                        # kernels.append(fits.open(filename.split('.gz')[0])[0].data)
-
                     else:
                         print("This file doesn't seem to exist on the website : ",filename)
                         native_pixelscale = get_pixel_scale(image_stack[i].header)
@@ -1121,6 +1105,8 @@ def main(args=None):
                                        (2* math.sqrt(2*math.log (2) ) * native_pixelscale))
                         kernels.append(Gaussian2DKernel(sigma_input).array)
 
+        kernel_stack = kernels            
+        
         if (do_conversion):
             image_stack = convert_images(image_stack)
 
@@ -1128,7 +1114,7 @@ def main(args=None):
             image_stack = register_images(image_stack)
     
         if (do_convolution):
-            image_stack = convolve_images(image_stack)
+            image_stack = convolve_images(image_stack, kernel_stack)
 
         if (do_resampling):
             image_stack = resample_images(image_stack, logfile_name)
