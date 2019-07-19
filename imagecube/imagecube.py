@@ -12,6 +12,8 @@
 
 from __future__ import print_function, division
 
+import requests
+import gzip
 import sys
 import getopt
 import glob
@@ -323,7 +325,7 @@ def convert_images(image_stack):
             try: # try to get conversion factor from image header
                 instrument = image_stack[i].header['INSTRUME']
                 conversion_factor = get_conversion_factor(
-                    image_stack[i], instrument)
+                    image_stack[i].header, instrument)
             except KeyError: # get this if no 'INSTRUME' keyword
                 conversion_factor = 0
             # if conversion_factor == 0 either we don't know the instrument
@@ -411,7 +413,8 @@ def merge_headers(montage_hfile, orig_header, out_file):
             orig_header[key] = montage_header[key] # overwrite the original header WCS
     if 'CD1_1' in orig_header.keys(): # if original header has CD matrix instead of CDELTs:
         for cdm in ['CD1_1','CD1_2','CD2_1','CD2_2']: 
-            del orig_header[cdm] # delete the CD matrix
+            if cdm in orig_header.keys():
+                del orig_header[cdm] # delete the CD matrix
         for cdp in ['CDELT1','CDELT2','CROTA2']: 
             orig_header[cdp] = montage_header[cdp] # insert the CDELTs and CROTA2
     orig_header.tofile(out_file,sep='\n',endcard=True,padding=False,overwrite=True)
@@ -537,7 +540,7 @@ def register_images(image_stack):
 
     return image_stack
 
-def convolve_images(image_stack):
+def convolve_images(image_stack, kernel_stack):
     """
     Convolves all of the images to a common resolution using a simple
     gaussian kernel.
@@ -559,10 +562,6 @@ def convolve_images(image_stack):
         original_directory = os.path.dirname(image_stack[i].header['FILENAME'])
         convolved_filename = (new_directory + original_filename  + 
                               "_convolved.fits")
-
-        # Check if there is a corresponding PSF kernel.
-        # If so, then use that to perform the convolution.
-        # Otherwise, convolve with a Gaussian kernel.
         
         kernel_filename = (original_directory + "/" + kernel_directory + "/" + 
                            original_filename + "_kernel.fits")
@@ -571,24 +570,14 @@ def convolve_images(image_stack):
         log.info("Looking for " + kernel_filename)
 
         if os.path.exists(kernel_filename):
-            log.info("Found a kernel; will convolve with it shortly.")
-            #reading the science image
-            science_hdulist = image_stack[i]
-            science_header = science_hdulist.header
-            science_image = science_hdulist.data
-            # reading the kernel
-            kernel_hdulist = fits.open(kernel_filename)
-            kernel_image = kernel_hdulist[0].data
-            kernel_hdulist.close()
-            # do the convolution and save as a new .fits file
-            convolved_image = convolve_fft(science_image, kernel_image)
-            hdu = fits.PrimaryHDU(convolved_image, science_header)
+            log.info("Found a kernel")
+            
+            convolved_image = convolve_fft(image_stack[i].data, kernel_stack[i])
+            hdu = fits.PrimaryHDU(convolved_image, image_stack[i].header)
             hdu.writeto(convolved_filename, overwrite=True)
             image_stack[i].data = convolved_image
+
         else: # no kernel
-            native_pixelscale = get_pixel_scale(image_stack[i].header)
-            sigma_input = (fwhm_input / 
-                           (2* math.sqrt(2*math.log (2) ) * native_pixelscale))
 
             # NOTETOSELF: there has been a loss of data from the data cubes at
             # an earlier step. The presence of 'EXTEND' and 'DSETS___' keywords
@@ -598,31 +587,77 @@ def convolve_images(image_stack):
             # NOTE_FROM_PB: can possibly solve this issue, and eliminate a lot 
             # of repetitive code, by making a multi-extension FITS file
             # in the initial step, and iterating over the extensions in that file
+            
             hdulist = image_stack[i]
             header = hdulist.header
             image_data = hdulist.data
+            
             # NOTETOSELF: not completely clear whether Gaussian2DKernel 'width' is sigma or FWHM
             # also, previous version had kernel being 3x3 pixels which seems pretty small!
             # NOTE_FROM_RK: width is no longer a parameter from gaussian kernels 
             # confirmed from the astropy repository posts, the parameter is sigma
             
-            # construct kernel
-            gaus_kernel_inp = Gaussian2DKernel(sigma_input)
-            
             # Do the convolution and save it as a new .fits file
-            interpreted_result = interpolate_replace_nans(image_data, gaus_kernel_inp)
-            conv_result = convolve(interpreted_result, gaus_kernel_inp)
+            # interpreted_result = interpolate_replace_nans(image_data, kernel_stack[i])
+            # conv_result = convolve_fft(interpreted_result, kernel_stack[i])
 
-            # conv_result = convolve(image_data, gaus_kernel_inp)
-           
-            header['FWHM'] = (fwhm_input, 
-                              'FWHM value used in convolution, in pixels')
+            if(kernel_stack[i].shape[0]>image_data.shape[0]):
+                conv_result = convolve_fft(image_data, kernel_stack[i])
+            else:
+                # this was a workaround, not quite sure if this makes sense
+                conv_result = convolve(image_data, kernel_stack[i])
+                header['FWHM'] = (fwhm_input,
+                    'FWHM value used for Gaussian convolution, in pixels')
             hdu = fits.PrimaryHDU(conv_result, header)
             hdu.writeto(convolved_filename, overwrite=True)
             image_stack[i].header = header
             image_stack[i].data = conv_result
     return image_stack
 
+def resample_kernel(kernel_file, img_file):
+    """
+    Resamples the kernel to the same pixel scale as the image.
+
+    Parameters
+    ----------
+    kernel_file: string
+        A string containing the name of the kernel file
+        that needs to be resampled
+
+    img_file: string
+        A string containing the name of the image file
+        that will be convolved with this kernel
+    
+    """
+
+    kernel = fits.open(kernel_file)[0]
+    ke_pixsc = get_pixel_scale(kernel.header)
+    
+    img = fits.open(img_file)[0]
+    im_pixsc = get_pixel_scale(img.header)
+    
+    lngref_input, latref_input, rotation_pa = get_ref_wcs(kernel_file)
+    size_height, size_width = kernel.data.shape
+    
+    width_input = u.arcsec.to(u.deg)*ke_pixsc*size_width
+    height_input = u.arcsec.to(u.deg)*ke_pixsc*size_height
+
+    resampled_kernel = kernel_file.strip('.fits') + '_resampled.fits'
+
+    montage.commands.mHdr(str(lngref_input) + ' ' + str(latref_input), width_input, 
+                              'grid_final_resample_header', system='eq', 
+                              equinox=2000.0, height=height_input, 
+                              pix_size=im_pixsc, rotation=rotation_pa)
+
+    artificial_header = image_directory + 'temporary_hdr.hdr'
+    merge_headers('grid_final_resample_header', kernel.header,artificial_header)
+    montage.wrappers.reproject(kernel_file, resampled_kernel, header = artificial_header, exact_size=True)
+
+    resampled_kernel_data = fits.open(resampled_kernel)[0].data
+    os.unlink(artificial_header)
+    os.unlink('grid_final_resample_header')
+    os.unlink(resampled_kernel)
+    return resampled_kernel_data
 
 def resample_images(image_stack, logfile_name):
     """
@@ -873,7 +908,7 @@ def main(args=None):
     global do_seds
     global do_cleanup
     global kernel_directory
-    global im_pixsc
+    global im_pixsc # change variable name
     global rot_angle
     global make_2D
     ang_size = ''
@@ -896,7 +931,7 @@ def main(args=None):
 
     # parse arguments
     if args !=None:
-        arglist = string.split(args)
+        arglist = args.split(' ')
     else:
         arglist = sys.argv[1:]
     parse_status = parse_command_line(arglist) 
@@ -1011,8 +1046,82 @@ def main(args=None):
         # Generate the kernel filename by picking up the instruments for each image and the wavelength
         # Further, before convolving each image from this kernel_stack with images from the image_stack
         # Resample them so that the pixel scale match  -- DOUBT
-        # Pixel scale of kernel should match with that of the image pixel scale        
+        # Pixel scale of kernel should match with that of the image pixel scale
+        kernels = []
+        kernels.append([])
+        
+        # this is the url from where the kernels will be downloaded
+        url0 = "https://www.astro.princeton.edu/~ganiano/Kernels/Ker_2012/Kernels_fits_Files/Low_Resolution/Kernel_LoRes_"
+        
+        # all the images will be transformed to the PSF of the largest wavelength
+        to_hdu = image_stack[-1]
+        to_instr = str(to_hdu.header['INSTRUME'])
+        to_wavelnth = to_hdu.header['WAVELNTH']
 
+        # small hack since MIPS channels sometimes have wavelengths of different levels of precision
+        if(to_instr=="MIPS"):
+            to_wavelnth = math.ceil(to_wavelnth)
+
+        # For every image in our stack, we first look if there's a corresponding 
+        # kernel file in the dataset provided. If we dont find one, we look for one on the URL
+        # mentioned and generated using the instrument name and wavlenegth. If the website does 
+        # not seem to have the corresponding kernels, we generate a Gaussian kernel using the 
+        # FWHM input and the corresponding pixel_scale
+
+        for i in range(1, len(image_stack)):
+            original_filename = os.path.basename(image_stack[i].header['FILENAME'])
+            original_directory = os.path.dirname(image_stack[i].header['FILENAME'])
+            
+            kernel_filename = (original_directory + "/" + kernel_directory + "/" + 
+                               original_filename + "_kernel.fits")
+
+            log.info("Looking for " + kernel_filename)
+
+            if os.path.exists(kernel_filename):
+                log.info("Found a kernel; will convolve with it shortly.")
+                # reading the kernel
+                kernel_hdulist = fits.open(kernel_filename)
+                kernel_image = kernel_hdulist[0].data
+                kernel_hdulist.close()
+                kernels.append(kernel_image)
+
+            else:
+                fr_instr = str(image_stack[i].header['INSTRUME'])
+                fr_wavelnth = image_stack[i].header['WAVELNTH']
+
+                if(fr_instr=='MIPS'):
+                    fr_wavelnth = math.ceil(fr_wavelnth)
+
+                # This is the URL generated, from where we will donwload files.
+
+                url = url0 + str(fr_instr) + "_" + str(fr_wavelnth) + "_to_" + str(to_instr) + "_" + str(to_wavelnth) + ".fits.gz"
+
+                filename = url.split("/")[-1]
+
+                # TODO : Look for these files if they're already downloaded so that these downloads do not need to 
+                # happen multiple times if the same kernel files are required. Ideally, make a kernels folder to handle this
+                with open(filename, "wb") as f:
+                    r = requests.get(url)
+                    if not r.status_code==404:
+                        f.write(r.content)
+                        with gzip.open(filename, 'rb') as f_in:
+                            with open(filename.split('.gz')[0], 'wb') as f_out:
+                                shutil.copyfileobj(f_in, f_out)
+                        log.info("File unzipped : ",filename.split('.gz')[0])
+                        
+                        # resampling of the kernel, so that the file can be used for convolution
+                        resampled_kernel = resample_kernel(filename.split('.gz')[0], image_stack[i].header['FILENAME'])
+                        kernels.append(resampled_kernel)
+
+                    else:
+                        log.info("This file doesn't seem to exist on the website : ",filename)
+                        native_pixelscale = get_pixel_scale(image_stack[i].header)
+                        sigma_input = (fwhm_input / 
+                                       (2* math.sqrt(2*math.log (2) ) * native_pixelscale))
+                        kernels.append(Gaussian2DKernel(sigma_input).array)
+
+        kernel_stack = kernels            
+        
         if (do_conversion):
             image_stack = convert_images(image_stack)
 
@@ -1020,7 +1129,7 @@ def main(args=None):
             image_stack = register_images(image_stack)
     
         if (do_convolution):
-            image_stack = convolve_images(image_stack)
+            image_stack = convolve_images(image_stack, kernel_stack)
 
         if (do_resampling):
             image_stack = resample_images(image_stack, logfile_name)
@@ -1035,6 +1144,12 @@ def main(args=None):
         else:
             return
 
+if __name__ == '__main__':
+    import sys
+    main(sys.argv[1:])
 
 # this is just to test and see if the script is running fine, delete for the realease
-main()
+# main()
+
+
+# python imagecube.py --flux_conv --im_reg --im_conv --fwhm=8 --im_regrid --im_pixsc=3.0 --ang_size=300 --im_ref /home/rishabkhincha/fits_files/pb_test/n5128_pbcd_24.fits --dir /home/rishabkhincha/fits_files/pb_test/
